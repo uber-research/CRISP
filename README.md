@@ -4,7 +4,7 @@ This repo contains code to compute and present critical path summary from [Jaege
 To use first collect the microservice traces of a specific endpoint in a directory (say `traces`).
 Let the traces be for `OP` operation and `SVC` service (these are Jaeger termonologies).
 `python3 process.py --operationName OP --serviceName SVC -t <path to trace> -o . --parallelism 8` will produce the critical path summary using 8 concurrent processes. 
-The summary will be output in the current directoryas an HTML file with a heatmap, flamegraph, and summary text in `criticalPaths.html`.
+The summary will be output in the current directory as an HTML file with a heatmap, flamegraph, and summary text in `criticalPaths.html`.
 It will also produce three flamegraphs `flame-graph-*.svg` for three different percentile values.
 
 The script accepts the following options:
