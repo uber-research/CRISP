@@ -1,8 +1,8 @@
 # CRISP: Critical Path Analysis of Microservice Traces
 
-This repo contains code to compute and present critical path summary from Jaeger microservice traces.
-To use first collect the microservice traces of a specific endpoint in a directory (say traces).
-Let the traces be for OP operation and SVC service (these are Jaeger termonologies).
+This repo contains code to compute and present critical path summary from [Jaeger](https://github.com/jaegertracing/jaeger) microservice traces.
+To use first collect the microservice traces of a specific endpoint in a directory (say `traces`).
+Let the traces be for `OP` operation and `SVC` service (these are Jaeger termonologies).
 `python3 process.py --operationName OP --serviceName SVC -t <path to trace> -o . --parallelism 8` will produce the critical path summary using 8 concurrent processes. The script accepts the following options. 
 
 The summary will be output in the current directoryas an HTML file with a heatmap, flamegraph, and summary text in `criticalPaths.html`.
