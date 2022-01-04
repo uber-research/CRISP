@@ -30,8 +30,6 @@ _HOSTNAME = 'hostname'
 _TESTING = 'testing'
 # how much can spans overlap as a fraction of the total execution time of thier common parent.
 _OVERLAP_ALLOWANCE_FRACTION = 0.01
-
-
 '''
 An example Jaeger JSON data looks like the one below.
 The testing section is added by us to keep the expected results.
@@ -105,7 +103,6 @@ class GraphNode():
     Additionally, it has the start time, duration, and end time (starttime + duration).
     Since, sometimes we edit these time values, we record originalStartTime and originalDuration.
     """
-
     def __init__(self, sid, startTime, duration, parentSpanId, opName,
                  processID):
         self.sid = sid
@@ -137,8 +134,10 @@ class Graph():
     Each Graph is built from some Jaeger JSON file represented by its filename.
     A well-formed Jaeger trace should have one and only one rootNode.
     """
-
-    def __init__(self, data, filename) -> None:
+    def __init__(self, data, serviceName, operationName, filename,
+                 rootTrace) -> None:
+        self.operationName = operationName
+        self.serviceName = serviceName
         self.filename = filename
         self.rootNode = None
         self.nodeHT = {}
@@ -155,6 +154,25 @@ class Graph():
         if self.rootNode == None:
             logging.warning(f"no root node in file {filename}!")
             return
+        if rootTrace == True:  # the root span must be the service+operation
+            if self.checkRootAndWarn(self.rootNode, filename,
+                                     rootTrace) == False:
+                return
+        else:  # randomly choose some one node whose service and op names match
+            someRoot = self.findARoot(self.rootNode)
+            if someRoot == None:
+                logging.warning(
+                    f"rootTrace == {rootTrace} but no matching node found in file {filename}!"
+                )
+                return
+            if self.checkRootAndWarn(someRoot, filename, rootTrace) == False:
+                return
+            # make someRoot's parent as None
+            someRoot.parent = None
+            someRoot.parentId = None
+            # set someRoot as the rootNode
+            self.rootNode = someRoot
+
         self.sanitizeOverflowingChildren(self.rootNode)
 
         if debug_on:
@@ -162,6 +180,28 @@ class Graph():
             logging.debug(f"{self.shrinkCounter} spans shrank")
             logging.debug(f"{self.totalDrop} spans dropped")
             logging.debug(f"total executionTime {self.rootNode.duration}")
+
+    def findARoot(self, node):
+        # a DFS for finding the first node that matches the required service and operation name.
+        if self.processName[
+                node.
+                pid] == self.serviceName and node.opName == self.operationName:
+            return node
+        for c in node.children:
+            found = self.findARoot(c)
+            if found != None:
+                return found
+        return None
+
+    def checkRootAndWarn(self, node, filename, rootTrace):
+        if self.processName[
+                node.
+                pid] != self.serviceName or node.opName != self.operationName:
+            logging.warning(
+                f"rootTrace == {rootTrace}, expected serviceName={self.serviceName} and found {self.processName[node.pid]}. Expected operationName={self.operationName} and found {node.opName} in file {filename}"
+            )
+            return False
+        return True
 
     def setTestResult(self, result):
         self.testing = result
@@ -467,7 +507,10 @@ class Graph():
             # -ve duration is added or inserted
             accumulateInDict(callpathTimeExlusive, parentCC, -n.duration)
 
-        return Metrics(opTimeExclusive, callpathTimeExlusive, exclusiveExampleMap, opTimeInclusive, callpathTimeInclusive, inclusiveExampleMap, callChain)
+        return Metrics(opTimeExclusive, callpathTimeExlusive,
+                       exclusiveExampleMap, opTimeInclusive,
+                       callpathTimeInclusive, inclusiveExampleMap, callChain,
+                       self.rootNode.sid)
 
 
 def accumulateInDict(dictName, key, value):
@@ -499,8 +542,9 @@ class Metrics():
     5. callpathTimeInclusive: the call-path profile with inclusive callpath times.
     6. inclusiveExampleMap: per callpath worst case example of inclusive time.
     """
-
-    def __init__(self, opTimeExclusive, callpathTimeExlusive, exclusiveExampleMap, opTimeInclusive, callpathTimeInclusive, inclusiveExampleMap, callChain):
+    def __init__(self, opTimeExclusive, callpathTimeExlusive,
+                 exclusiveExampleMap, opTimeInclusive, callpathTimeInclusive,
+                 inclusiveExampleMap, callChain, rootSpanID):
         self.opTimeExclusive = opTimeExclusive
         self.callpathTimeExlusive = callpathTimeExlusive
         self.exclusiveExampleMap = exclusiveExampleMap
@@ -508,3 +552,4 @@ class Metrics():
         self.callpathTimeInclusive = callpathTimeInclusive
         self.inclusiveExampleMap = inclusiveExampleMap
         self.callChain = callChain
+        self.rootSpanID = rootSpanID

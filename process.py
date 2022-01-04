@@ -46,6 +46,15 @@ argParser.add_argument('-s',
                        help='name of the service',
                        required=True,
                        type=str)
+argParser.add_argument(
+    '--rootTrace',
+    dest='rootTrace',
+    action='store_true',
+    default=False,
+    required=False,
+    help=
+    "Should the service and operation be the root span of the trace (default:false)."
+)
 argParser.add_argument('-t',
                        '--traceDir',
                        action='store',
@@ -91,6 +100,7 @@ tracesDir = args.traceDir
 topN = args.topN
 numOperation = args.numOperation
 numTrace = args.numTrace
+rootTrace = args.rootTrace
 
 
 if args.file == None and args.traceDir == None:
@@ -226,9 +236,9 @@ def process(filename):
     # process one Jaeger JSON trace file
     with open(os.path.join(filename), 'r') as f:
         data = json.load(f)
-        graph = Graph(data, filename)
+        graph = Graph(data, serviceName, operationName, filename, rootTrace)
         if graph.rootNode == None:
-            return Metrics({}, {}, {}, {}, {}, {}, {})
+            return Metrics({}, {}, {}, {}, {}, {}, {}, 0)
 
         res = graph.findCriticalPath()
         debug_on and logging.debug("critical path:" + str(res))
@@ -509,11 +519,12 @@ def makeClickable(url, name):
         url, name)
 
 
-def addHyperLinkToTrace(df, traceIds):
+def addHyperLinkToTrace(df, tracespanIDmap):
     # Make each trace column header navigatable to Jaeger UI
     hyperLinkHT = {}
-    for i in traceIds:
-        hyperLinkHT[i] = makeClickable(JAEGER_UI_URL + str(i), '#')
+    for k, v in tracespanIDmap.items():
+        hyperLinkHT[k] = makeClickable(JAEGER_UI_URL + "%s?uiFind=%s" % (k, v),
+                                       '#')
     df.rename(columns=hyperLinkHT, inplace=True)
     return df
 
@@ -643,7 +654,8 @@ def getGradientFormatFromDataframe(df, precisionHT, firstSorableCoulmn,
                         }).format(precisionHT).render())
 
 
-def heatmapAndSummary(exclusive, inclusive, aggregateCallMap, traceIDIndex):
+def heatmapAndSummary(exclusive, inclusive, aggregateCallMap, traceIDIndex,
+                      traceToRootspanMap):
     # Create a dataframe of traces and operations.
     # Insert percentile columns.
     # Compute a heatmap.
@@ -694,7 +706,7 @@ def heatmapAndSummary(exclusive, inclusive, aggregateCallMap, traceIDIndex):
     df = df.iloc[:numOperation, :numColsToRetains + numTrace]
 
     # Add hyperlinks to the column heads of each trace.
-    df = addHyperLinkToTrace(df, traceIDIndex)
+    df = addHyperLinkToTrace(df, traceToRootspanMap)
 
     # Make percentile columns and occurence column sortable.
     df = renameSortableIcon(
@@ -739,13 +751,20 @@ if __name__ == '__main__':
     traceIDIndex = [
         os.path.splitext(os.path.basename(i))[0] for i in jaegerTraceFiles
     ]
-
+    # create a map of from traceID to the corresponding spanID.
+    traceToRootspanMap = {}
+    for i in range(len(traceIDIndex)):
+        traceID = traceIDIndex[i]
+        spanID = metrics[i].rootSpanID
+        traceToRootspanMap[traceID] = spanID
+        
     logging.info("Starting flameGraph")
     flameGraphPctFilePair = flameGraph(metrics, args.outputDir)
 
     logging.info("Starting heatmapAndSummary")
     heatMap, summary = heatmapAndSummary(exclusive, inclusive,
-                                         aggregateCallMap, traceIDIndex)
+                                         aggregateCallMap, traceIDIndex,
+                                         traceToRootspanMap)
 
     criticalPathHTMLFile = os.path.join(args.outputDir, 'criticalPaths.html')
 
