@@ -369,8 +369,9 @@ def flameGraph(metrics, outputDir):
             (r.opTimeExclusive['totalTime'], r.callpathTimeExlusive))
 
     cctsAndtime = sorted(cctsAndtime, key=lambda x: x[0])
-    percentilesExclusive = [50, 95, 99]
+    percentilesExclusive = sorted([50, 95, 99])
     flameGraphPctFilePair = []
+    differentialFlameGraphFiles = []
     for p in percentilesExclusive:
         limit = int(round(len(cctsAndtime) * p / 100))
         if limit == 0:
@@ -397,8 +398,29 @@ def flameGraph(metrics, outputDir):
         with open(svgFile, 'w') as f:
             subprocess.check_call(('./flamegraph.pl', flamegraphPath),
                                   stdout=f)
-    return flameGraphPctFilePair
 
+        # if there are predecessors, do a differential analysis with them
+        for predPct, predFile in flameGraphPctFilePair[:-1]:
+            diffCCTFile = 'flame-graph-' + predPct + 'vsP' + str(p) + '.cct'
+            diffFilePath = os.path.join(outputDir, diffCCTFile)
+            # produce diff CCT
+            with open(diffFilePath, 'w') as f:
+                subprocess.check_call(('./difffolded.pl', '-n', predFile.rstrip('.svg'), flamegraphPath),
+                                  stdout=f)
+            # produce diff SVG
+            diffSVGFile = diffFilePath + '.svg'
+            with open(diffSVGFile, 'w') as f:
+                subprocess.check_call(('./flamegraph.pl', diffFilePath),
+                                  stdout=f)
+            differentialFlameGraphFiles.append(diffSVGFile)
+
+    return flameGraphPctFilePair, differentialFlameGraphFiles
+
+def getOutputDir():
+    # Override if we have a file.
+    if args.file != None:
+        return os.path.dirname(args.file.name)
+    return tracesDir
 
 class PVal:
     def __init__(self, percentile, percentileStr):
@@ -759,7 +781,7 @@ if __name__ == '__main__':
         traceToRootspanMap[traceID] = spanID
         
     logging.info("Starting flameGraph")
-    flameGraphPctFilePair = flameGraph(metrics, args.outputDir)
+    flameGraphPctFilePair, differentialFlameGraphFiles = flameGraph(metrics, getOutputDir())
 
     logging.info("Starting heatmapAndSummary")
     heatMap, summary = heatmapAndSummary(exclusive, inclusive,
