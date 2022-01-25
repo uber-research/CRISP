@@ -193,6 +193,16 @@ class Graph():
                 return found
         return None
 
+    def computeGraphStats(self, node):
+        # a DFS
+        descendants = 0
+        depth = 0
+        for c in node.children:
+            moreDescendants, newDepth = self.computeGraphStats(c)
+            descendants = descendants + moreDescendants
+            depth = newDepth if newDepth > depth else depth
+        return descendants+1, depth+1
+
     def checkRootAndWarn(self, node, filename, rootTrace):
         if self.processName[
                 node.
@@ -507,10 +517,11 @@ class Graph():
             # -ve duration is added or inserted
             accumulateInDict(callpathTimeExlusive, parentCC, -n.duration)
 
+        descendants, depth = self.computeGraphStats(self.rootNode)
         return Metrics(opTimeExclusive, callpathTimeExlusive,
                        exclusiveExampleMap, opTimeInclusive,
                        callpathTimeInclusive, inclusiveExampleMap, callChain,
-                       self.rootNode.sid)
+                       self.rootNode.sid, descendants, depth)
 
 
 def accumulateInDict(dictName, key, value):
@@ -544,7 +555,7 @@ class Metrics():
     """
     def __init__(self, opTimeExclusive, callpathTimeExlusive,
                  exclusiveExampleMap, opTimeInclusive, callpathTimeInclusive,
-                 inclusiveExampleMap, callChain, rootSpanID):
+                 inclusiveExampleMap, callChain, rootSpanID, descendants, depth):
         self.opTimeExclusive = opTimeExclusive
         self.callpathTimeExlusive = callpathTimeExlusive
         self.exclusiveExampleMap = exclusiveExampleMap
@@ -553,3 +564,5 @@ class Metrics():
         self.inclusiveExampleMap = inclusiveExampleMap
         self.callChain = callChain
         self.rootSpanID = rootSpanID
+        self.numNodes = descendants
+        self.depth = depth

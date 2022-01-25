@@ -238,7 +238,7 @@ def process(filename):
         data = json.load(f)
         graph = Graph(data, serviceName, operationName, filename, rootTrace)
         if graph.rootNode == None:
-            return Metrics({}, {}, {}, {}, {}, {}, {}, 0)
+            return Metrics({}, {}, {}, {}, {}, {}, {}, 0, 0, 0)
 
         res = graph.findCriticalPath()
         debug_on and logging.debug("critical path:" + str(res))
@@ -767,6 +767,16 @@ def replaceNonAlphaNumericWithUnderscore(str):
 if __name__ == '__main__':
     logging.info("Starting mapReduce")
     metrics = mapReduce(args.parallelism, jaegerTraceFiles)
+
+    maxNodes = 0
+    totalNodes = 0
+    maxDepth = 0
+    for i in metrics:
+        totalNodes = totalNodes + i.numNodes
+        maxNodes = i.numNodes if i.numNodes >  maxNodes else maxNodes
+        maxDepth = i.depth if i.depth >  maxDepth else maxDepth
+    logging.info(f"maxNodes = {maxNodes}, totalNodes={totalNodes}, maxDepth={maxDepth}")
+
     logging.info("Starting aggregateMetrics")
     exclusive, inclusive, aggregateCallMap = aggregateMetrics(
         metrics, jaegerTraceFiles)
