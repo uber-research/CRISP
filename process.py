@@ -27,11 +27,14 @@ logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
 debug_on = logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 JAEGER_UI_URL = "https://jaeger-ui.yourserver.com/trace"
 
+
 def dirPathCheck(path):
     if os.path.isdir(path):
         return path
     else:
-        raise argparse.ArgumentTypeError(f"readable_dir:{path} is not a valid path")
+        raise argparse.ArgumentTypeError(
+            f"readable_dir:{path} is not a valid path")
+
 
 argParser = argparse.ArgumentParser()
 argParser.add_argument('-a',
@@ -55,17 +58,29 @@ argParser.add_argument(
     help=
     "Should the service and operation be the root span of the trace (default:false)."
 )
-argParser.add_argument('-t',
-                       '--traceDir',
-                       action='store',
-                       type=dirPathCheck,
-                       help='path of the trace directory (mutually exclusive with --file)',
-                       default=None)
-argParser.add_argument('--file',
-                       type=argparse.FileType('r'),
-                       action='store',
-                       help='input path of the trace file (mutually exclusivbe with --traceDir)',
-                       default=None)
+
+argParser.add_argument(
+    '--anonymize',
+    dest='anonymize',
+    action='store_true',
+    default=False,
+    required=False,
+    help="Should the service and operation names be anonymized (default:false)."
+)
+
+argParser.add_argument(
+    '-t',
+    '--traceDir',
+    action='store',
+    type=dirPathCheck,
+    help='path of the trace directory (mutually exclusive with --file)',
+    default=None)
+argParser.add_argument(
+    '--file',
+    type=argparse.FileType('r'),
+    action='store',
+    help='input path of the trace file (mutually exclusivbe with --traceDir)',
+    default=None)
 argParser.add_argument('-o',
                        '--outputDir',
                        required=True,
@@ -101,7 +116,7 @@ topN = args.topN
 numOperation = args.numOperation
 numTrace = args.numTrace
 rootTrace = args.rootTrace
-
+anonymize = args.anonymize
 
 if args.file == None and args.traceDir == None:
     print("One of --inpiut/--file should be set.")
@@ -272,7 +287,6 @@ class SummaryResult:
     2. callpathTime: the call-path profile with callpath times.
     3. exampleMap: per callpath worst case example.
     """
-
     def __init__(self, opTime, callpathTime, exampleMap):
         self.opTime = opTime
         self.callpathTime = callpathTime
@@ -405,22 +419,26 @@ def flameGraph(metrics, outputDir):
             diffFilePath = os.path.join(outputDir, diffCCTFile)
             # produce diff CCT
             with open(diffFilePath, 'w') as f:
-                subprocess.check_call(('./difffolded.pl', '-n', predFile.rstrip('.svg'), flamegraphPath),
-                                  stdout=f)
+                subprocess.check_call(
+                    ('./difffolded.pl', '-n', predFile.rstrip('.svg'),
+                     flamegraphPath),
+                    stdout=f)
             # produce diff SVG
             diffSVGFile = diffFilePath + '.svg'
             with open(diffSVGFile, 'w') as f:
                 subprocess.check_call(('./flamegraph.pl', diffFilePath),
-                                  stdout=f)
+                                      stdout=f)
             differentialFlameGraphFiles.append(diffSVGFile)
 
     return flameGraphPctFilePair, differentialFlameGraphFiles
+
 
 def getOutputDir():
     # Override if we have a file.
     if args.file != None:
         return os.path.dirname(args.file.name)
     return tracesDir
+
 
 class PVal:
     def __init__(self, percentile, percentileStr):
@@ -764,6 +782,45 @@ def replaceNonAlphaNumericWithUnderscore(str):
     return re.sub('[^a-zA-Z0-9_]+', '_', str)
 
 
+saniMap = {'totalTime': 'totalTime'}
+saniCtr = 0
+
+
+def sanitized(op):
+    global saniCtr
+    global saniMap
+    ret = ''
+    pieces = op.split('->')
+    for piece in pieces:
+        if ret != '':
+            ret += '->'
+        if piece in saniMap:
+            ret += saniMap[piece]
+        else:
+            saniCtr += 1
+            ret += 'Service::Operation' + str(saniCtr)
+            saniMap[piece] = 'Service::Operation' + str(saniCtr)
+    return ret
+
+
+def sanitizeNames(metric):
+    for r in metric:
+        for field in [
+                r.opTimeExclusive, r.callpathTimeExlusive,
+                r.exclusiveExampleMap, r.opTimeInclusive,
+                r.callpathTimeInclusive, r.inclusiveExampleMap
+        ]:
+            for k, v in field.copy().items():
+                del field[k]
+                field[sanitized(k)] = v
+        for k, vals in r.callChain.copy().items():
+            del r.callChain[k]
+            sk = sanitized(k)
+            r.callChain[sk] = set()
+            for v in vals:
+                r.callChain[sk].add(sanitized(v))
+
+
 if __name__ == '__main__':
     logging.info("Starting mapReduce")
     metrics = mapReduce(args.parallelism, jaegerTraceFiles)
@@ -773,10 +830,13 @@ if __name__ == '__main__':
     maxDepth = 0
     for i in metrics:
         totalNodes = totalNodes + i.numNodes
-        maxNodes = i.numNodes if i.numNodes >  maxNodes else maxNodes
-        maxDepth = i.depth if i.depth >  maxDepth else maxDepth
-    logging.info(f"maxNodes = {maxNodes}, totalNodes={totalNodes}, maxDepth={maxDepth}")
+        maxNodes = i.numNodes if i.numNodes > maxNodes else maxNodes
+        maxDepth = i.depth if i.depth > maxDepth else maxDepth
+    logging.info(
+        f"maxNodes = {maxNodes}, totalNodes={totalNodes}, maxDepth={maxDepth}")
 
+    if anonymize:
+        sanitizeNames(metrics)
     logging.info("Starting aggregateMetrics")
     exclusive, inclusive, aggregateCallMap = aggregateMetrics(
         metrics, jaegerTraceFiles)
@@ -789,9 +849,10 @@ if __name__ == '__main__':
         traceID = traceIDIndex[i]
         spanID = metrics[i].rootSpanID
         traceToRootspanMap[traceID] = spanID
-        
+
     logging.info("Starting flameGraph")
-    flameGraphPctFilePair, differentialFlameGraphFiles = flameGraph(metrics, getOutputDir())
+    flameGraphPctFilePair, differentialFlameGraphFiles = flameGraph(
+        metrics, getOutputDir())
 
     logging.info("Starting heatmapAndSummary")
     heatMap, summary = heatmapAndSummary(exclusive, inclusive,

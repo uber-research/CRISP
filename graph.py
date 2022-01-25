@@ -201,7 +201,7 @@ class Graph():
             moreDescendants, newDepth = self.computeGraphStats(c)
             descendants = descendants + moreDescendants
             depth = newDepth if newDepth > depth else depth
-        return descendants+1, depth+1
+        return descendants + 1, depth + 1
 
     def checkRootAndWarn(self, node, filename, rootTrace):
         if self.processName[
@@ -555,7 +555,8 @@ class Metrics():
     """
     def __init__(self, opTimeExclusive, callpathTimeExlusive,
                  exclusiveExampleMap, opTimeInclusive, callpathTimeInclusive,
-                 inclusiveExampleMap, callChain, rootSpanID, descendants, depth):
+                 inclusiveExampleMap, callChain, rootSpanID, descendants,
+                 depth):
         self.opTimeExclusive = opTimeExclusive
         self.callpathTimeExlusive = callpathTimeExlusive
         self.exclusiveExampleMap = exclusiveExampleMap
