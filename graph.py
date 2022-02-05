@@ -150,28 +150,38 @@ class Graph():
         self.exclusiveExampleMap = {}
         self.inclusiveExampleMap = {}
         self.callChain = {}
-        self.parseNode(data)
-        if self.rootNode == None:
+        potentialRoots = self.parseNode(data)
+        if len(potentialRoots) == 0:
             logging.warning(f"no root node in file {filename}!")
             return
         if rootTrace == True:  # the root span must be the service+operation
-            if self.checkRootAndWarn(self.rootNode, filename,
-                                     rootTrace) == False:
+            if len(potentialRoots) != 1:
+                logging.warning(
+                    f"{len(potentialRoots)} roots node in file {filename}!")
                 return
+            if potentialRoots[0] == None or self.checkRootAndWarn(
+                    potentialRoots[0], filename, rootTrace) == False:
+                return
+            else:
+                self.rootNode = potentialRoots[0]
         else:  # randomly choose some one node whose service and op names match
-            someRoot = self.findARoot(self.rootNode)
-            if someRoot == None:
+            for candidate in potentialRoots:
+                someRoot = self.findARoot(candidate)
+                if someRoot == None or self.checkRootAndWarn(
+                        someRoot, filename, rootTrace) == False:
+                    continue
+                # make someRoot's parent as None
+                someRoot.parent = None
+                someRoot.parentId = None
+                # set someRoot as the rootNode
+                self.rootNode = someRoot
+                break
+
+            if self.rootNode == None:
                 logging.warning(
                     f"rootTrace == {rootTrace} but no matching node found in file {filename}!"
                 )
                 return
-            if self.checkRootAndWarn(someRoot, filename, rootTrace) == False:
-                return
-            # make someRoot's parent as None
-            someRoot.parent = None
-            someRoot.parentId = None
-            # set someRoot as the rootNode
-            self.rootNode = someRoot
 
         self.sanitizeOverflowingChildren(self.rootNode)
 
@@ -237,8 +247,11 @@ class Graph():
                 return "extra key {} in cp".format(str(k))
         return True
 
+    # Builds graph and returns potential roots.
     def parseNode(self, jsonData):
         # given jaeger jsonData blob, build the Graph().
+
+        potentialRoots = []
 
         # pass 1: extract all spans and create one GraphNode for each.
         for item in jsonData['data']:
@@ -260,20 +273,18 @@ class Graph():
 
                 self.nodeHT[thisSpan] = node
 
-                # if _TRACE_ID == _SPAN_ID, then this is the root.
-                if thisSpan == span[_TRACE_ID]:
-                    self.rootNode = node
-
         # pass 2: add parent-child relations to GraphNodes.
         for spanId in self.nodeHT:
             me = self.nodeHT[spanId]
             parentId = me.parentSpanId
             if parentId == None:
-                continue  # nothing to do
+                potentialRoots.append(me)
+                continue
             if parentId not in self.nodeHT:
                 debug_on and logging.debug(
                     f"Span {spanId}'s parent {parentId} not present in nodeHT: file = {self.filename}"
                 )
+                potentialRoots.append(me)
                 continue
 
             parent = self.nodeHT[parentId]
@@ -295,6 +306,8 @@ class Graph():
             for k, v in jsonData[_TESTING][0].items():
                 results[k] = v
             self.setTestResult(results)
+
+        return potentialRoots
 
     def sanitizeOverflowingChildren(self, curNode):
         # if a child overflows or underflows its parent, it will be truncated/deleted to match/adhere to parent timeline.
