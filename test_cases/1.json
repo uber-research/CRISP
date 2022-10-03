@@ -1,0 +1,35 @@
+{
+    "data": [
+        {
+            "processes": {
+                "S": {
+                    "serviceName": "S1",
+                    "tags": [
+                    ]
+                }
+            },
+            "traceID": "A",
+            "spans": [
+                {
+                    "traceID": "A",
+                    "spanID": "A",
+                    "operationName": "O1",
+                    "references": [],
+                    "startTime": 0,
+                    "duration": 100,
+                    "processID": "S",
+                    "warnings": null
+                }
+            ]
+        }
+        ],
+    "testing": [
+        {
+            "[S1] O1": 100
+        }
+    ],
+    "total": 0,
+    "limit": 0,
+    "offset": 0,
+    "errors": null
+}

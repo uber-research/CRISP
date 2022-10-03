@@ -19,6 +19,7 @@ import sys
 from datetime import datetime
 import logging
 import subprocess
+import flamegraph
 
 DATE_TIME = datetime.now().strftime("%d_%B_%Y_%H_%M_%S")
 logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
@@ -287,6 +288,7 @@ class SummaryResult:
     2. callpathTime: the call-path profile with callpath times.
     3. exampleMap: per callpath worst case example.
     """
+
     def __init__(self, opTime, callpathTime, exampleMap):
         self.opTime = opTime
         self.callpathTime = callpathTime
@@ -368,69 +370,6 @@ def aggregateMetrics(metrics, jaegerTraceFiles):
                        exampleMap=inclusive.exampleMap)
 
     return exclusive, inclusive, aggregateCallMap
-
-
-def flameGraph(metrics, outputDir):
-    # Produce SVG flame graphs from critical paths for different percentiles.
-    # Returns a list of tuples [(percentile value, path to SVG file), ...]
-    ccts = {}
-
-    cctsAndtime = []
-    for r in metrics:
-        if not 'totalTime' in r.opTimeExclusive:
-            continue
-        cctsAndtime.append(
-            (r.opTimeExclusive['totalTime'], r.callpathTimeExlusive))
-
-    cctsAndtime = sorted(cctsAndtime, key=lambda x: x[0])
-    percentilesExclusive = sorted([50, 95, 99])
-    flameGraphPctFilePair = []
-    differentialFlameGraphFiles = []
-    for p in percentilesExclusive:
-        limit = int(round(len(cctsAndtime) * p / 100))
-        if limit == 0:
-            logging.info(f"not enough samples for P" + str(p) + " flamegraph")
-            continue
-
-        for time, ccts in cctsAndtime[:limit]:
-            for k, v in ccts.items():
-                if not k in ccts:
-                    ccts[k] = v
-                else:
-                    ccts[k] += v
-        flameGraph = ''
-        for k, v in ccts.items():
-            flameGraph += k.replace('->', ';') + ' ' + str(v) + '\n'
-
-        cctFile = 'flame-graph-P' + str(p) + '.cct'
-        flamegraphPath = os.path.join(outputDir, cctFile)
-        with open(flamegraphPath, 'w') as f:
-            f.write(flameGraph)
-
-        svgFile = flamegraphPath + '.svg'
-        flameGraphPctFilePair.append(('P' + str(p), svgFile))
-        with open(svgFile, 'w') as f:
-            subprocess.check_call(('./flamegraph.pl', flamegraphPath),
-                                  stdout=f)
-
-        # if there are predecessors, do a differential analysis with them
-        for predPct, predFile in flameGraphPctFilePair[:-1]:
-            diffCCTFile = 'flame-graph-' + predPct + 'vsP' + str(p) + '.cct'
-            diffFilePath = os.path.join(outputDir, diffCCTFile)
-            # produce diff CCT
-            with open(diffFilePath, 'w') as f:
-                subprocess.check_call(
-                    ('./difffolded.pl', '-n', predFile.rstrip('.svg'),
-                     flamegraphPath),
-                    stdout=f)
-            # produce diff SVG
-            diffSVGFile = diffFilePath + '.svg'
-            with open(diffSVGFile, 'w') as f:
-                subprocess.check_call(('./flamegraph.pl', diffFilePath),
-                                      stdout=f)
-            differentialFlameGraphFiles.append(diffSVGFile)
-
-    return flameGraphPctFilePair, differentialFlameGraphFiles
 
 
 def getOutputDir():
@@ -745,6 +684,9 @@ def heatmapAndSummary(exclusive, inclusive, aggregateCallMap, traceIDIndex,
     # Truncate df to max of numOperation rows and numColsToRetains + numTrace columns.
     df = df.iloc[:numOperation, :numColsToRetains + numTrace]
 
+    # Get df into Json format
+    criticalPathJSONStr = df.to_json()
+
     # Add hyperlinks to the column heads of each trace.
     df = addHyperLinkToTrace(df, traceToRootspanMap)
 
@@ -775,7 +717,8 @@ def heatmapAndSummary(exclusive, inclusive, aggregateCallMap, traceIDIndex,
     heatmap = getGradientFormatFromDataframe(df, precisionHT,
                                              firstSorableCoulmn,
                                              numColsToRetains)
-    return heatmap, summary
+
+    return heatmap, summary, criticalPathJSONStr
 
 
 def replaceNonAlphaNumericWithUnderscore(str):
@@ -832,8 +775,7 @@ if __name__ == '__main__':
         totalNodes = totalNodes + i.numNodes
         maxNodes = i.numNodes if i.numNodes > maxNodes else maxNodes
         maxDepth = i.depth if i.depth > maxDepth else maxDepth
-    logging.info(
-        f"maxNodes = {maxNodes}, totalNodes={totalNodes}, maxDepth={maxDepth}")
+    logging.info(f"maxNodes = {maxNodes}, totalNodes={totalNodes}, maxDepth={maxDepth}")
 
     if anonymize:
         sanitizeNames(metrics)
@@ -851,13 +793,13 @@ if __name__ == '__main__':
         traceToRootspanMap[traceID] = spanID
 
     logging.info("Starting flameGraph")
-    flameGraphPctFilePair, differentialFlameGraphFiles = flameGraph(
+    flameGraphPctFilePair, differentialFlameGraphFiles = flamegraph.flameGraph(
         metrics, getOutputDir())
 
     logging.info("Starting heatmapAndSummary")
-    heatMap, summary = heatmapAndSummary(exclusive, inclusive,
-                                         aggregateCallMap, traceIDIndex,
-                                         traceToRootspanMap)
+    heatMap, summary, criticalPathJSONStr = heatmapAndSummary(exclusive, inclusive,
+                                                              aggregateCallMap, traceIDIndex,
+                                                              traceToRootspanMap)
 
     criticalPathHTMLFile = os.path.join(args.outputDir, 'criticalPaths.html')
 
