@@ -295,9 +295,10 @@ class Graph():
         for item in jsonData['data']:
             for p in item[_PROCESSES]:
                 self.processName[p] = item[_PROCESSES][p]['serviceName']
-                for dictionary in item[_PROCESSES][p][_TAGS]:
-                    if dictionary['key'] == _HOSTNAME:
-                        self.hostMap[p] = dictionary['value']
+                if _TAGS in item[_PROCESSES][p]:
+                    for dictionary in item[_PROCESSES][p][_TAGS]:
+                        if dictionary['key'] == _HOSTNAME:
+                            self.hostMap[p] = dictionary['value']
 
         # for testing only, we keep the expected results in _TESTING section of JSON.
         # pass 4 : record test results
