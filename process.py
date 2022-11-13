@@ -376,7 +376,7 @@ def getOutputDir():
     # Override if we have a file.
     if args.file != None:
         return os.path.dirname(args.file.name)
-    return tracesDir
+    return args.outputDir
 
 
 class PVal:
