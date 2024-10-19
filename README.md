@@ -32,3 +32,7 @@ optional arguments:
   --numOperation NUMOPERATION
                         number of operations to show in the heatmap
 ```
+
+## Dataset
+We released 1.5 Million production traces along with our paper [The Tale of Errors in Microservices](https://doi.org/10.1145/3700436) at https://zenodo.org/records/13947828.
+Please cite our paper if you use the dataset in your research.
