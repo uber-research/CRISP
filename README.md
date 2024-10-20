@@ -34,5 +34,6 @@ optional arguments:
 ```
 
 ## Dataset
+We released the original artifact of the original [CRISP](https://www.usenix.org/conference/atc22/presentation/zhang-zhizhou) paper at https://zenodo.org/records/13956078.
 We released 1.5 Million production traces along with our paper [The Tale of Errors in Microservices](https://doi.org/10.1145/3700436) at https://zenodo.org/records/13947828.
 Please cite our paper if you use the dataset in your research.
