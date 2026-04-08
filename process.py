@@ -477,10 +477,12 @@ def insertInclusivePercentileInfoDF(df, percentilesInclusive, inclusiveDF):
 def insertOccurenceCol(df, jaegerTraceFiles, nonZeros):
     # Insert one column that counts the number of times the operation is seen on the critical path
     occurenceColHeader = 'occurence (%s)' % len(jaegerTraceFiles)
-    df.insert(0, occurenceColHeader, "")
-    for i in range(len(df)):
-        df.at[df.index[i],
-              'occurence (%s)' % len(jaegerTraceFiles)] = int(nonZeros[i])
+    # Use integer placeholder so pandas StringDtype columns (pandas 3+) do not reject int counts.
+    df.insert(0, occurenceColHeader, [0] * len(df))
+    # nonZeros is a Series indexed by operation name (from sum(axis=0) before transpose);
+    # df rows are operations after addPercentileColumns — use labels, not positional ints.
+    for row_label in df.index:
+        df.at[row_label, occurenceColHeader] = int(nonZeros.get(row_label, 0))
     return df, occurenceColHeader
 
 
@@ -635,7 +637,7 @@ def getGradientFormatFromDataframe(df, precisionHT, firstSorableCoulmn,
                     'class="table-sortable"').set_properties(
                         **{
                             'text-align': 'right'
-                        }).format(precisionHT).render())
+                        }).format(precisionHT).to_html())
 
 
 def heatmapAndSummary(exclusive, inclusive, aggregateCallMap, traceIDIndex,

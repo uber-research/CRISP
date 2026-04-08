@@ -1,11 +1,23 @@
-# Update the version "0.0.0" to the release found here:
-# https://github.com/bazelbuild/rules_python/releases.
-bazel_dep(name = "rules_python", version = "0.0.0")
+"""Bazel module metadata and Python dependencies via rules_python + pip lockfile."""
+
+module(
+    name = "crisp",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_python", version = "1.0.0")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = True,
+    python_version = "3.11",
+)
+use_repo(python, "python_3_11", "python_versions", "pythons_hub")
 
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
     hub_name = "pypi",
     python_version = "3.11",
-    requirements_lock = "//:requirements.txt",
+    requirements_lock = "//:requirements_lock.txt",
 )
 use_repo(pip, "pypi")

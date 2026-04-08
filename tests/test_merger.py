@@ -1,11 +1,14 @@
 import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 import yaml
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 # Import all functions to be tested
-from ..yaml_merger import (
+from yaml_merger import (
     main,
     merge_yaml,
     merge_without_overwrite_or_duplication,
