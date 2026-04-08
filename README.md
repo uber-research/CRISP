@@ -1,4 +1,6 @@
 # CRISP: Critical Path Analysis of Microservice Traces
+[![CI](https://github.com/uber-research/CRISP/actions/workflows/ci.yml/badge.svg)](https://github.com/uber-research/CRISP/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 This repo contains code to compute and present critical path summary from [Jaeger](https://github.com/jaegertracing/jaeger) microservice traces.
 To use first collect the microservice traces of a specific endpoint in a directory (say `traces`).
