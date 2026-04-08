@@ -1,4 +1,4 @@
-# CI: (1) Python 3.11 — same as scripts/ci-local.sh. (2) Bazel — runs when any BUILD.bazel exists.
+# CI: (1) Python 3.11 — same as scripts/ci-local.sh. (2) Bazel — gated with hashFiles on steps (not job if; unsupported there).
 name: CI
 
 on:
@@ -43,11 +43,13 @@ jobs:
   bazel:
     name: Bazel
     runs-on: ubuntu-latest
-    if: hashFiles('**/BUILD.bazel') != ''
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazelisk@v3
+      # hashFiles() is not allowed on jobs.<id>.if; use step-level if instead.
+      - uses: bazelbuild/setup-bazelisk@v3
+        if: ${{ hashFiles('**/BUILD.bazel') != '' }}
 
       - name: Bazel test
+        if: ${{ hashFiles('**/BUILD.bazel') != '' }}
         run: bazel test //...
