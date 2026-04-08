@@ -1,0 +1,53 @@
+# CI: (1) Python 3.11 — same as scripts/ci-local.sh. (2) Bazel — runs when any BUILD.bazel exists.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python 3.11 (pytest + test.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements_lock.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_lock.txt
+
+      # Keep in sync with scripts/ci-local.sh (pytest -q + test.sh).
+      - name: Unit + trace tests
+        env:
+          MPLBACKEND: Agg
+          PYTHON: python
+        run: bash scripts/ci-local.sh
+
+  bazel:
+    name: Bazel
+    runs-on: ubuntu-latest
+    if: hashFiles('**/BUILD.bazel') != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazelisk@v3
+
+      - name: Bazel test
+        run: bazel test //...
