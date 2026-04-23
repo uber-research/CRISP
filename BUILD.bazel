@@ -10,7 +10,6 @@ py_library(
         "process.py",
         "tb_client.py",
         "yaml_merger.py",
-        "utils/singleton_wrapper.py",
     ],
     imports = ["."],
     visibility = ["//visibility:private"],
@@ -33,6 +32,7 @@ py_test(
     data = glob(["tests/**"]) + ["pyproject.toml"],
     deps = [
         ":crisp_lib",
+        "//crisp:pkg",
         "@pypi//pytest",
     ],
     env = {"MPLBACKEND": "Agg"},

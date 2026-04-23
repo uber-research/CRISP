@@ -1,4 +1,7 @@
+"""Decorator that turns a class into a lazily-initialized singleton."""
+
 from typing import ClassVar
+
 
 class SingletonWrapper:
     _instances: ClassVar[dict[type, object]] = {}

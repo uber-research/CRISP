@@ -2,7 +2,12 @@ load("@rules_python//python:py_library.bzl", "py_library")
 
 py_library(
     name = "utils",
-    srcs = ["__init__.py"],
+    srcs = [
+        "__init__.py",
+        "dict_utils.py",
+        "singleton_wrapper.py",
+        "span_utils.py",
+    ],
     imports = ["../.."],
     visibility = ["//visibility:public"],
 )
