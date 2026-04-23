@@ -23,3 +23,13 @@ must not import from higher layers. Each PR in the port maintains this invariant
 If you find yourself adding a `crisp.process_trace` import inside
 `crisp/output/`, stop — the dependency is inverted. Move the shared piece
 down to `crisp.shared` instead.
+
+## Naming convention during the port
+
+Most public functions in `crisp/` (e.g. `accumulateInDict`, `isProxyNode`,
+`getCPSize`) are `camelCase`. This violates PEP 8 but is **deliberate**:
+the port preserves the exact names used by the upstream internal codebase
+so that every call site migrates with a single-line import change rather
+than a rename sweep. Renaming to `snake_case` is a cross-cutting concern
+that deserves its own dedicated PR once the port has stabilized — please
+don't do it as a drive-by in an unrelated change.
