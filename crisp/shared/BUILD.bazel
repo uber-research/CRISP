@@ -2,7 +2,12 @@ load("@rules_python//python:py_library.bzl", "py_library")
 
 py_library(
     name = "shared",
-    srcs = ["__init__.py"],
+    srcs = [
+        "__init__.py",
+        "constants.py",
+        "models.py",
+        "utils.py",
+    ],
     imports = ["../.."],
     visibility = ["//visibility:public"],
 )
