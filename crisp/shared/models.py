@@ -8,7 +8,22 @@ from __future__ import annotations
 
 import copy
 import logging
+from enum import Enum
 from typing import Any
+
+from crisp.shared.constants import (
+    DEFAULT_MAX_DEPTH,
+    DEFAULT_MIN_DEPTH,
+    DEFAULT_PROPAGATED_ERRORS,
+    DEFAULT_SELF_ERRORS,
+    DEFAULT_STOPPED_ERRORS,
+    PERCENTILE_50,
+    PERCENTILE_90,
+    PERCENTILE_95,
+    PERCENTILE_99,
+    SpanKindValues,
+)
+from crisp.utils.dict_utils import getCPSize
 
 
 class MetricVals:
@@ -180,3 +195,269 @@ class LatencyData:
         self.hypoLatency = self.hypoLatency / count
         self.hypoLatencyOptimistic = self.hypoLatencyOptimistic / count
         self.hypoLatencyPessimistic = self.hypoLatencyPessimistic / count
+
+
+class QuantizedMetrics:
+    headers: tuple[str, ...] = (
+        "items",
+        "p0",
+        "p100",
+        "avg",
+        "p50",
+        "p90",
+        "p95",
+        "p99",
+    )
+
+    def __init__(self, histo: dict[int, int]):
+        self.p100 = None
+        self.p0 = None
+        self.items = None
+        self.avg = None
+        self.p50 = None
+        self.p90 = None
+        self.p95 = None
+        self.p99 = None
+        self.isValid = False
+        if len(histo) == 0:
+            return
+
+        all = []
+        maxDepth = DEFAULT_MAX_DEPTH
+        minDepth = DEFAULT_MIN_DEPTH
+        sum = 0
+        items = 0
+        for k, v in histo.items():
+            all.extend([k] * v)
+            items += v
+            sum += k * v
+            minDepth = min(minDepth, k)
+            maxDepth = max(maxDepth, k)
+
+        avg = sum / items
+        p50 = all[int(len(all) * PERCENTILE_50)]
+        p90 = all[int(len(all) * PERCENTILE_90)]
+        p95 = all[int(len(all) * PERCENTILE_95)]
+        p99 = all[int(len(all) * PERCENTILE_99)]
+
+        self.p100 = maxDepth
+        self.p0 = minDepth
+        self.items = items
+        self.avg = avg
+        self.p50 = p50
+        self.p90 = p90
+        self.p95 = p95
+        self.p99 = p99
+        self.isValid = True
+
+    def getRow(self):
+        if not self.isValid:
+            return None
+        return [getattr(self, x) for x in QuantizedMetrics.headers]
+
+
+class ErrCountsData:
+    def __init__(
+        self,
+        selfErrors=DEFAULT_SELF_ERRORS,
+        propagatedErrors=DEFAULT_PROPAGATED_ERRORS,
+        stoppedErrors=DEFAULT_STOPPED_ERRORS,
+    ):
+        self.selfErrors = selfErrors
+        self.propagatedErrors = propagatedErrors
+        self.stoppedErrors = stoppedErrors
+
+    def __str__(self):
+        return f"{self.selfErrors},{self.propagatedErrors},{self.stoppedErrors}"
+
+    def __add__(self, other):
+        return ErrCountsData(
+            self.selfErrors + other.selfErrors,
+            self.propagatedErrors + other.propagatedErrors,
+            self.stoppedErrors + other.stoppedErrors,
+        )
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
+    def toArray(self):
+        return [self.selfErrors, self.propagatedErrors, self.stoppedErrors]
+
+
+class SavingData:
+    def __init__(self, timeSaved, latency, opCount):
+        self.timeSaved = timeSaved
+        self.latency = latency
+        self.opCount = opCount
+
+    def __add__(self, other):
+        return SavingData(
+            self.timeSaved + other.timeSaved,
+            self.latency + other.latency,
+            self.opCount + other.opCount,
+        )
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
+
+class SpanKind(Enum):
+    CLIENT = SpanKindValues.CLIENT
+    SERVER = SpanKindValues.SERVER
+    UNKNOWN = SpanKindValues.UNKNOWN
+
+
+# The full error critical path metrics
+class ErrorCPMetrics:
+    """
+    ErrorCPMetric represents the following measurements as dictionaries
+    1. errCPCallpathTimeExclusive: the error call-path profile with exclusive callpath times
+        computed based on the full error critical path
+    2. errCPErrCounts: the error call-path profile with error counts computed based on the
+        full error critical path
+    3. savingPotential: a map [opName]: exclusive timeSaved spent in op
+    4. numCPErrors: the number of errored out nodes on the critical path
+    5. numRelatedToCPErrors: the number of errored out nodes not on the
+        critical path but connected to the critical path via a chain of failed calls
+    """
+
+    def __init__(
+        self,
+        errCPCallpathTimeExclusive,
+        errCPErrCounts,
+        savingPotential,
+        numCPErrors,
+        numRelatedToCPErrors,
+    ):
+        self.errCPCallpathTimeExclusive = errCPCallpathTimeExclusive
+        self.errCPErrCounts = errCPErrCounts
+        self.errCPSize = getCPSize(errCPCallpathTimeExclusive)
+        self.savingPotential = savingPotential
+        self.numCPErrors = numCPErrors
+        self.numRelatedToCPErrors = numRelatedToCPErrors
+
+
+# whole program error metrics
+class ErrorMetrics:
+    """
+    ErrorMetrics contains various metrics on errors for the whole program
+    1. numAllErrors: the number of errored spans
+    2. errCounts: a map from opCallpath to error counts
+        ["opCallpath": <selfErrors, propagatedErrors, stoppedErrors>]
+    3. errCallChainCounts: a map from opCallPath to error call-chain counts
+        ["opCallpath": integer count of errored out callcahin]
+    4. selfErrDepthList: a list of self error depth
+    5. stoppedErrDepthList: a list of stopped error depth
+    6. depthMap: a map from depth (key) to ErrCountsData
+        [depth: <selfErrors, propagatedErrors, stoppedErrors>]
+    7. propLengthMap: a map from propagation length to count of self errors
+        [propLength: integer counts of self errors with that propLength]
+    8. resiliencyMap: a map from canonicalOpName to ErrCountsData
+        ["canonicalOpName": <selfErrors, propagatedErrors, stoppedErrors>]
+        though we only update the propagated and stopped errors for this map
+    9. maxErrDepthPropToRoot: the max depth of self error propagated to root
+        this value is -1 if the root did not error
+    10. propToRootHistoQuantized: selferrors propagated to root, captured as a QuantizedError
+    11. notPropToRootHistoQuantized: selferrors not propagated to root, captured as a QuantizedError
+    12. propToRooOnCPtHistoQuantized: selferrors propagated to root on critical path, captured as a QuantizedError
+    13. notPropToRooOnCPtHistoQuantized: selferrors not propagated to root on critical path, captured as a QuantizedError
+    14. supressHistoQuantized:  supressed errors, captured as a QuantizedError
+    15. supressOnCPHistoQuantized: supressed errors on critical path, captured as a QuantizedError
+    """
+
+    def __init__(
+        self,
+        numAllErrors,
+        errCounts,
+        errCallChainCounts,
+        selfErrDepthList,
+        stoppedErrDepthList,
+        errDepthMap,
+        errPropLengthMap,
+        resiliencyMap,
+        maxErrDepthPropToRoot,
+        propToRootHistoQuantized,
+        notPropToRootHistoQuantized,
+        propToRootOnCPHistoQuantized,
+        notPropToRootOnCPHistoQuantized,
+        supressHistoQuantized,
+        supressOnCPHistoQuantized,
+    ):
+        self.numAllErrors = numAllErrors
+        self.errCounts = errCounts
+        self.errCallChainCounts = errCallChainCounts
+        self.selfErrDepthList = selfErrDepthList
+        self.stoppedErrDepthList = stoppedErrDepthList
+        self.errDepthMap = errDepthMap
+        self.errPropLengthMap = errPropLengthMap
+        self.resiliencyMap = resiliencyMap
+        self.maxErrDepthPropToRoot = maxErrDepthPropToRoot
+        self.propToRootHistoQuantized = propToRootHistoQuantized
+        self.notPropToRootHistoQuantized = notPropToRootHistoQuantized
+        self.propToRootOnCPHistoQuantized = propToRootOnCPHistoQuantized
+        self.notPropToRootOnCPHistoQuantized = notPropToRootOnCPHistoQuantized
+        self.supressHistoQuantized = supressHistoQuantized
+        self.supressOnCPHistoQuantized = supressOnCPHistoQuantized
+
+
+class Metrics:
+    def __init__(
+        self,
+        traceID,
+        traceSz,
+        CPMetrics,
+        errCPMetrics,
+        errMetrics,
+        totalWork,
+        timeSavedOnWork,
+        latency,
+        timeSavedOnCPPessimistic,
+        timeSavedOnCPOptimistic,
+        timeSavedOnCPAllSeries,
+        rootSpanID,
+        descendants,
+        depth,
+        numNodesOnCP,
+        rootReturnError,
+        propToRootErrCCT,
+        isCtfTest,
+        numProxyRoots,
+        tags,
+        cycles,
+        crossRegionCalls,
+        projectedCPMetrics=None,
+        projectedLatency=None,
+        isIncomplete=False,
+        isSubtreeIncomplete=False,
+    ):
+        self.traceID = traceID
+        self.CPMetrics = CPMetrics
+        self.errCPMetrics = errCPMetrics
+        self.errMetrics = errMetrics
+        self.fileSz = traceSz
+        self.propToRootErrCCT = propToRootErrCCT
+
+        if CPMetrics:
+            self.cpSize = getCPSize(CPMetrics.profile)
+
+        self.totalWork = totalWork
+        self.timeSavedOnWork = timeSavedOnWork
+        self.latency = latency
+        self.timeSavedOnCPPessimistic = timeSavedOnCPPessimistic
+        self.timeSavedOnCPOptimistic = timeSavedOnCPOptimistic
+        self.timeSavedOnCPAllSeries = timeSavedOnCPAllSeries
+        self.rootSpanID = rootSpanID
+        self.numNodes = descendants
+        self.depth = depth
+        self.numNodesOnCP = numNodesOnCP
+
+        self.rootReturnError = rootReturnError
+        self.isCtfTest = isCtfTest
+        self.numProxyRoots = numProxyRoots
+        self.tags = tags
+        self.cycles = cycles
+        self.crossRegionCalls = crossRegionCalls
+        self.projectedCPMetrics = projectedCPMetrics
+        self.projectedLatency = projectedLatency
+        self.isIncomplete = isIncomplete
+        self.isSubtreeIncomplete = isSubtreeIncomplete
