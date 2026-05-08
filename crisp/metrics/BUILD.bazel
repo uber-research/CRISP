@@ -5,7 +5,12 @@ py_library(
     srcs = [
         "__init__.py",
         "aggregators.py",
+        "percentile_calculator.py",
     ],
     imports = ["../.."],
     visibility = ["//visibility:public"],
+    deps = [
+        "//crisp/shared:shared",
+        "@pypi//pandas",
+    ],
 )
