@@ -2,7 +2,14 @@ load("@rules_python//python:py_library.bzl", "py_library")
 
 py_library(
     name = "output",
-    srcs = ["__init__.py"],
+    srcs = [
+        "__init__.py",
+        "formatters.py",
+    ],
     imports = ["../.."],
     visibility = ["//visibility:public"],
+    deps = [
+        "//crisp/shared:shared",
+        "@pypi//pandas",
+    ],
 )
