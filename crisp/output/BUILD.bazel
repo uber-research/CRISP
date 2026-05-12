@@ -4,6 +4,7 @@ py_library(
     name = "output",
     srcs = [
         "__init__.py",
+        "csv_generators.py",
         "formatters.py",
     ],
     imports = ["../.."],
