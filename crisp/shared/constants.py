@@ -34,6 +34,11 @@ DEFAULT_SELF_ERRORS = 0
 DEFAULT_PROPAGATED_ERRORS = 0
 DEFAULT_STOPPED_ERRORS = 0
 
+# Tag-dict keys used by GetRemainingTags and the tag-search machinery.
+TAG_NAME = "name"
+TAG_VALUE = "value"
+TAG_SEARCH_DEPTH = "search_depth"
+
 
 class SpanKindValues:
     """Numeric values for span kinds.

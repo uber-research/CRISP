@@ -14,6 +14,9 @@ from crisp.shared.constants import (
     PERCENTILE_95,
     PERCENTILE_99,
     SORTABLE_COL_CLASS,
+    TAG_NAME,
+    TAG_SEARCH_DEPTH,
+    TAG_VALUE,
     TOTAL_TIME,
     SpanKindValues,
 )
@@ -111,6 +114,23 @@ class TestSpanKindValues(unittest.TestCase):
             SpanKindValues.UNKNOWN,
         }
         self.assertEqual(len(values), 3)
+
+
+class TestTagKeys(unittest.TestCase):
+    """Test the tag-dict key constants consumed by GetRemainingTags."""
+
+    def test_values(self):
+        self.assertEqual(TAG_NAME, "name")
+        self.assertEqual(TAG_VALUE, "value")
+        self.assertEqual(TAG_SEARCH_DEPTH, "search_depth")
+
+    def test_types(self):
+        self.assertIsInstance(TAG_NAME, str)
+        self.assertIsInstance(TAG_VALUE, str)
+        self.assertIsInstance(TAG_SEARCH_DEPTH, str)
+
+    def test_distinct(self):
+        self.assertEqual(len({TAG_NAME, TAG_VALUE, TAG_SEARCH_DEPTH}), 3)
 
 
 if __name__ == "__main__":
