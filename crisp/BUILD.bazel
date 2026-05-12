@@ -15,3 +15,15 @@ py_library(
         "//crisp/utils:utils",
     ],
 )
+
+py_library(
+    name = "configuration",
+    srcs = ["configuration.py"],
+    deps = [],
+)
+
+py_library(
+    name = "cli",
+    srcs = ["cli.py"],
+    deps = [":configuration"],
+)

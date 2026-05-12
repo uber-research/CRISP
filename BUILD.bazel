@@ -38,3 +38,16 @@ py_test(
     env = {"MPLBACKEND": "Agg"},
     imports = ["."],
 )
+
+py_test(
+    name = "test_configuration",
+    srcs = ["tests/test_configuration.py"],
+    deps = ["//crisp:configuration"],
+)
+
+py_test(
+    name = "test_cli",
+    srcs = ["tests/test_cli.py"],
+    data = ["services.yaml"],
+    deps = ["//crisp:cli"],
+)
