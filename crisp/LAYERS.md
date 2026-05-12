@@ -72,5 +72,7 @@ When porting, apply this decision in order:
 
 ### Deferred tests
 
-| Test file (internal) | Deferred until PR | Reason                |
-| -------------------- | ----------------- | --------------------- |
+| Test (internal path::class)                                          | Deferred until PR | Reason                                                                                                |
+| -------------------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `output/tests/test_csv_generators.py::TestGenCyclesCSVFile.*` (×2)   | PR 8a             | `@patch("...common.Config")` decorator; patch-target module `crisp.common` does not exist yet.        |
+| `output/tests/test_csv_generators.py::TestGenSummaryCSVFile.*` (×2)  | PR 8a             | Same as above. Helper `getDummyMetric` (uses `crisp.shared.models.Metrics`) returns with these tests. |
