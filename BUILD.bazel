@@ -29,27 +29,12 @@ py_test(
     size = "small",
     srcs = ["pytest_runner.py"],
     main = "pytest_runner.py",
-    data = glob(["tests/**"]) + ["pyproject.toml", "services.yaml"],
+    data = glob(["tests/**"]) + ["pyproject.toml"],
     deps = [
         ":crisp_lib",
-        "//crisp:cli",
-        "//crisp:configuration",
         "//crisp:pkg",
         "@pypi//pytest",
     ],
     env = {"MPLBACKEND": "Agg"},
     imports = ["."],
-)
-
-py_test(
-    name = "test_configuration",
-    srcs = ["tests/test_configuration.py"],
-    deps = ["//crisp:configuration"],
-)
-
-py_test(
-    name = "test_cli",
-    srcs = ["tests/test_cli.py"],
-    data = ["services.yaml"],
-    deps = ["//crisp:cli"],
 )

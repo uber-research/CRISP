@@ -1,2 +1,0 @@
-example-service:
-  - "ExampleService::doSomething"
