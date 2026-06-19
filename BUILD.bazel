@@ -35,6 +35,7 @@ py_test(
         "//crisp:cli",
         "//crisp:common",
         "//crisp:configuration",
+        "//crisp:constants",
         "//crisp:pkg",
         "@pypi//pytest",
     ],
