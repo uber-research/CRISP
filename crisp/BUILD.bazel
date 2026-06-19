@@ -46,3 +46,17 @@ py_library(
         "@pypi//python_dateutil",
     ],
 )
+
+py_library(
+    name = "graph",
+    srcs = ["graph.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":common",
+        ":configuration",
+        ":constants",
+        ":pkg",
+        "//crisp/shared:shared",
+        "//crisp/utils:utils",
+    ],
+)

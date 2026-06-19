@@ -36,6 +36,7 @@ py_test(
         "//crisp:common",
         "//crisp:configuration",
         "//crisp:constants",
+        "//crisp:graph",
         "//crisp:pkg",
         "@pypi//pytest",
     ],
@@ -62,5 +63,12 @@ py_test(
     name = "test_common",
     srcs = ["tests/test_common.py"],
     deps = ["//crisp:common"],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_graph",
+    srcs = ["tests/test_graph.py"],
+    deps = ["//crisp:graph"],
     imports = ["."],
 )
