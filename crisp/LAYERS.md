@@ -24,7 +24,7 @@ If you find yourself adding a `crisp.process_trace` import inside
 `crisp/output/`, stop — the dependency is inverted. Move the shared piece
 down to `crisp.shared` instead.
 
-## Naming convention during the port
+## Legacy terminology
 
 Most public functions in `crisp/` (e.g. `accumulateInDict`, `isProxyNode`,
 `getCPSize`) are `camelCase`. This violates PEP 8 but is **deliberate**:
@@ -34,18 +34,10 @@ than a rename sweep. Renaming to `snake_case` is a cross-cutting concern
 that deserves its own dedicated PR once the port has stabilized — please
 don't do it as a drive-by in an unrelated change.
 
-## Legacy terminology preserved verbatim
-
-Some attribute names and user-facing strings still reference the internal
-framework they came from (most notably `Metrics.isCtfTest` and the display
-string "CTF test traces"). These are preserved verbatim for the same
-reason the `camelCase` names are: renaming them cascades through every
-caller in every unported PR. A generic rename (e.g. `isCtfTest` →
-`isTestTrace`) will happen in the same post-stabilization sweep that
-handles `camelCase` → `snake_case`. The underlying classification logic
-was already generalized in the `crisp.utils.span_utils` port (see the
-configurable `TEST_TRACE_OP_PREFIXES` / `TEST_TRACE_SERVICES` lists), so
-no behavior is Uber-specific even though the attribute name still is.
+Internal-framework terminology (`isCtfTest`, `ignoreCtfTests`, "CTF test
+traces") has been renamed to generic equivalents (`isTestTrace`,
+`ignoreTestTraces`, "test traces") as of PR 13a. No CTF-specific names
+remain in the codebase.
 
 ## Layer-crossing test dependencies — handling rule
 
