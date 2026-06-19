@@ -29,3 +29,13 @@ py_library(
     visibility = ["//visibility:public"],
     deps = [":configuration"],
 )
+
+py_library(
+    name = "common",
+    srcs = ["common.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crisp/shared:shared",
+        "@pypi//python_dateutil",
+    ],
+)
