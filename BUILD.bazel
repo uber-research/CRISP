@@ -33,6 +33,7 @@ py_test(
     deps = [
         ":crisp_lib",
         "//crisp:cli",
+        "//crisp:common",
         "//crisp:configuration",
         "//crisp:pkg",
         "@pypi//pytest",
@@ -53,5 +54,12 @@ py_test(
     srcs = ["tests/test_cli.py"],
     data = ["services.yaml"],
     deps = ["//crisp:cli"],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_common",
+    srcs = ["tests/test_common.py"],
+    deps = ["//crisp:common"],
     imports = ["."],
 )
