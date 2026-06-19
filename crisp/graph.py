@@ -1929,4 +1929,735 @@ class Graph:
                 return True
         return False
 
-    # --- _get_root_node and subsequent methods will be added in PR 9d ---
+    def _get_root_node(self, rootNode=None):
+        """Get the root node to use for analysis.
+
+        Args:
+            rootNode: Optional root node. If None, uses self.rootNode.
+
+        Returns:
+            The root node to use for analysis.
+        """
+        return rootNode if rootNode is not None else self.rootNode
+
+    def findCriticalPath(self, rootNode=None):
+        """Find the critical path starting from the given root node.
+
+        Args:
+            rootNode: Optional root node to start from. If None, uses self.rootNode.
+        """
+        node = self._get_root_node(rootNode)
+        res = self.computeCriticalPath(node)
+        return res
+
+    def findErrorsOnCriticalPath(self, rootNode=None):
+        """Find errors on the critical path starting from the given root node.
+
+        Args:
+            rootNode: Optional root node to start from. If None, uses self.rootNode.
+        """
+        node = self._get_root_node(rootNode)
+        fullErrCP = self.computeFullErrorsOnCriticalPath(node, onCP=True)
+        return fullErrCP
+
+    def computeTimeChange(self, deltaDurationMicroSec, rootNode=None, targetService=None, targetOperation=None):
+        """Compute time change for the given root node.
+
+        Args:
+            deltaDurationMicroSec: Time delta in microseconds.
+            rootNode: Optional root node to start from. If None, uses self.rootNode.
+            targetService: Optional service name to filter. When set (along with
+                targetOperation), only SERVER spans matching both are affected.
+            targetOperation: Optional operation name to filter.
+        """
+        node = self._get_root_node(rootNode)
+        timeChangeOnCPAllSeries = self.ComputeAllSeriesTimeChange(
+            node, deltaDurationMicroSec, targetService, targetOperation,
+        )
+
+        return timeChangeOnCPAllSeries
+
+    def _findMatchingNodes(self, node, targetService, targetOperation, result):
+        """Recursively find all SERVER nodes matching target service+operation."""
+        if (
+            node.spanKind == SpanKind.SERVER
+            and self.processName.get(node.pid, '') == targetService
+            and node.opName == targetOperation
+        ):
+            result.append(node)
+        for child in node.children:
+            self._findMatchingNodes(child, targetService, targetOperation, result)
+
+    def computeProjectedCPMetrics(self, deltaMicroSec, targetService, targetOperation, rootNode=None):
+        """Compute projected CPMetrics by mutating target span durations,
+        recomputing the critical path, and restoring originals.
+
+        Context-insensitive: ALL instances of targetService+targetOperation
+        get the delta applied regardless of call-path context.
+
+        The workflow is:
+          1. Find matching spans and save originals
+          2. Mutate durations (with containment floor) and cascade to ancestors
+          3. Recompute critical path + CPMetrics on the mutated graph
+          4. Restore all originals (try/finally for safety)
+          5. Compute analytical latency change via computeTimeChange
+
+        The containment floor ensures no node shrinks below the time range
+        occupied by its children (children have fixed absolute timestamps).
+        This keeps both inclusive and exclusive times physically consistent
+        in the projected flame graph.
+
+        Args:
+            deltaMicroSec: Time delta in microseconds (negative = faster, positive = slower).
+            targetService: Service name to target.
+            targetOperation: Operation name to target.
+            rootNode: Optional root node. If None, uses self.rootNode.
+
+        Returns:
+            Tuple of (projected_CPMetrics, projected_latency_change) where
+            projected_CPMetrics is a CallPathProfile and projected_latency_change
+            is the time delta on the critical path in microseconds.
+        """
+        node = self._get_root_node(rootNode)
+
+        # Step 1: Identify all SERVER spans matching the target service+operation.
+        matching_nodes = []
+        self._findMatchingNodes(node, targetService, targetOperation, matching_nodes)
+
+        # Step 2: Mutate each matching node and propagate the change to ancestors.
+        # originals stores (duration, endTime) for every mutated node so we can
+        # restore the graph after recomputing the critical path.
+        originals = {}
+        for n in matching_nodes:
+            # --- Containment floor for the target node ---
+            # A node must still encompass all its children after mutation.
+            # Children have fixed absolute timestamps (we don't reposition them),
+            # so the node's endTime can't go below its latest child's endTime.
+            #
+            #   min_duration = max(child.endTime) - node.startTime
+            #
+            # Example: node [0..200], children [10..90] and [50..130].
+            #   max(endTime) - start = 130 - 0 = 130  (all children fit)
+            #   sum(durations) = 160         → 40  (WRONG: child2 extends to 130)
+            #
+            # Leaf spans (no children) can shrink all the way to 0.
+            if n.children:
+                max_child_end = max(c.endTime for c in n.children)
+                min_duration = max(0, max_child_end - n.startTime)
+            else:
+                min_duration = 0
+
+            originals[n] = (n.duration, n.endTime)
+            old_duration = n.duration
+            n.duration = max(min_duration, n.duration + deltaMicroSec)
+            n.endTime = n.startTime + n.duration
+            # effective_delta is the *actual* change after floor clamping,
+            # which may be smaller in magnitude than the requested delta.
+            effective_delta = n.duration - old_duration
+
+            # --- Cascade to ancestors ---
+            # Propagate the duration change up the parent chain so that the
+            # root's inclusive time (e2e latency) reflects the child's change.
+            # The same containment floor rule applies: an ancestor can't shrink
+            # below its children's time extent (which includes the just-mutated
+            # target and any unmutated siblings).
+            # effective_delta is recalculated at each level; if an ancestor is
+            # clamped (e.g. a sibling extends further), less delta propagates up.
+            ancestor = n.parent
+            while ancestor is not None:
+                if ancestor not in originals:
+                    originals[ancestor] = (ancestor.duration, ancestor.endTime)
+                old_ancestor_dur = ancestor.duration
+                max_child_end = max(c.endTime for c in ancestor.children)
+                ancestor_floor = max(0, max_child_end - ancestor.startTime)
+                ancestor.duration = max(ancestor_floor, ancestor.duration + effective_delta)
+                ancestor.endTime = ancestor.startTime + ancestor.duration
+                effective_delta = ancestor.duration - old_ancestor_dur
+                if effective_delta == 0:
+                    break
+                ancestor = ancestor.parent
+
+        # Step 3: Recompute CP and CPMetrics on the mutated graph.
+        # The finally block guarantees restoration even if an exception occurs.
+        try:
+            projected_cp = self.findCriticalPath(rootNode=node)
+            projected_CPMetrics, _ = self.accumeCPMetrics(
+                projected_cp, self.filename or "", node,
+            )
+        finally:
+            # Step 4: Restore all mutated nodes to their original state.
+            for n, (orig_dur, orig_end) in originals.items():
+                n.duration = orig_dur
+                n.endTime = orig_end
+
+        # Step 5: Analytical latency change on the *original* (restored) graph.
+        # computeTimeChange asserts -delta <= duration for each matching span,
+        # so cap the effective delta to the smallest matching span's duration.
+        effective_delta = deltaMicroSec
+        if matching_nodes and deltaMicroSec < 0:
+            min_duration = min(n.duration for n in matching_nodes)
+            effective_delta = max(deltaMicroSec, -min_duration)
+
+        projected_latency = self.computeTimeChange(
+            effective_delta, rootNode=node,
+            targetService=targetService, targetOperation=targetOperation,
+        )
+
+        return projected_CPMetrics, projected_latency
+
+    def computeTimeSaved(self, rootNode=None):
+        """Compute time saved metrics for the given root node.
+
+        Args:
+            rootNode: Optional root node to start from. If None, uses self.rootNode.
+        """
+        node = self._get_root_node(rootNode)
+        totalWork, timeSavedOnW = self.computeTimeSavedOnWork(node)
+        # timeSavedOnCP = self.computeTimeSavedOnCPOld(node)
+        timeSavedOnCPOptimistic = (
+            self.computeTimeSavedOnCPOptimistic(node)
+            if is_optimistic_enabled()
+            else 0
+        )
+        timeSavedOnCPPessimistic = (
+            self.computeTimeSavedOnCPPessimistic(node)
+            if is_pessimistic_enabled()
+            else 0
+        )
+        timeSavedOnCPAllSeries = self.ComputeAllSeriesTimeSaved(node)
+
+        return (
+            totalWork,
+            timeSavedOnW,
+            timeSavedOnCPPessimistic,
+            timeSavedOnCPOptimistic,
+            timeSavedOnCPAllSeries,
+        )
+
+    def canonicalOpName(self, node):
+        # return the canonical name of the span in "[serviceName] operationName" fashion
+        return "[" + self.processName[node.pid] + "] " + node.opName
+
+    def appendCallPath(self, prefix, graphNode):
+        # appendCallPath appends canoncal name of graphNode to running prefix
+        str = self.canonicalOpName(graphNode)
+        if len(prefix):
+            str = prefix + "->" + str
+        return str
+
+    def getCallPath(self, graphNode):
+        # getCallPath obtains the stringified form of how the rootnode reaches graphNode
+        # the operation names are joined with "->".
+        # TODO: this can be optimized via memoization.
+        str = self.canonicalOpName(graphNode)
+        while graphNode.parent:
+            str = self.canonicalOpName(graphNode.parent) + "->" + str
+            graphNode = graphNode.parent
+        return str
+
+    def sanitizeExclusiveTime(self, timeMap):
+        for k, v in timeMap.items():
+            if v < 0:
+                debug_on and logging.debug(
+                    f"In {self.filename} zero out time entry for key {k}",
+                )
+                timeMap[k] = 0
+
+    # Accumulate inclusive and exclustive metrics for regular critical path.
+    # Include both flat (just the operation no call path) and call path profiles.
+    # Maintain an example of worst case span seen for each call path.
+    def accumeCPMetrics(self, criticalPath, traceId, rootNode):
+        cpp = CallPathProfile({}, 1, traceId)
+        sidTimeExclusive = {}
+        for n in reversed(criticalPath):
+            sid = n.sid
+            opCallpath = self.getCallPath(n)
+            metricVal = MetricVals(
+                inc=n.duration,
+                excl=n.duration,
+                freq=1,
+                sid=sid,
+            )
+            cpp.Upsert(opCallpath, metricVal)
+            accumulateInDict(sidTimeExclusive, sid, n.duration)
+
+            if n == rootNode:
+                continue
+
+            # for exclusive metrics, subtract the child's duration from its parent.
+            # if the parent is visited after the child(ren) we will have an existing
+            # -ve value to which a positive value will be added above.
+            parentCC = self.getCallPath(n.parent)
+            cpp.Upsert(
+                parentCC,
+                MetricVals(inc=0, excl=-n.duration, freq=0, sid=-1),
+            )
+            accumulateInDict(sidTimeExclusive, n.parent.sid, -n.duration)
+
+        # due to how we fix time skew, we might have ended up with negative exclusive times
+        # go through the dictionaries and zero out the negative time entries
+        cpp.Sanitize("excl", debug_on)
+        self.sanitizeExclusiveTime(sidTimeExclusive)
+
+        return cpp, sidTimeExclusive
+
+    def handleFullErrCPMetrics(self, fullErrCP, sidTimeExclusive):
+        errCPCallpathTimeExclusive = {}
+        errCPErrCounts = {}
+        # a set containing nodes whose children along the fullErrCP returned errors
+        childReturnedErrors = set()
+        sidFullErrTimeExclusive = {}
+        numCPErrors = 0
+        numRelatedToCPErrors = 0
+        # a map [OpName]: <timeSaved, latency, opCount> ((SavingData)
+        # though we don't use the latency here; it's used when we aggregate
+        # across traces
+        savingPotential = {}
+
+        for n in reversed(fullErrCP):
+            sid = n.sid
+            op = self.canonicalOpName(n)
+            opCallpath = self.getCallPath(n)
+
+            if n.returnError:
+                # if sid is in sidTimeExclusive, it is on the critical path
+                if sid in sidTimeExclusive:
+                    sidTimeEx = sidTimeExclusive[sid]
+                    accumulateInDict(
+                        savingPotential,
+                        op,
+                        SavingData(n.timeSavedOnCPAllSeries, 0, 1),
+                    )
+                    opCallpath = SYNTHETIC_ERR_CP_ROOT + "->" + opCallpath
+                    numCPErrors = numCPErrors + 1
+
+                else:  # this is a node that is not actually on the critical path
+                    accumulateInDict(sidFullErrTimeExclusive, sid, n.duration)
+                    # this must to be true as only rootNode has no parent and
+                    # rootNode must be on the critical path
+                    assert n.parent
+                    accumulateInDict(sidFullErrTimeExclusive, n.parent.sid, -n.duration)
+
+                    # in the flamegraph, for a node that is not on the CP, it has either its duration
+                    # along the full-error callpath or the sum of durations of all its error-ed out
+                    # children if the sum is larger than its duration
+                    sidTimeEx = sidFullErrTimeExclusive[sid]
+                    if sidTimeEx < 0:
+                        sidTimeEx = 0
+                    opCallpath = SYNTHETIC_FULL_ERR_NON_CP_ROOT + "->" + opCallpath
+                    numRelatedToCPErrors = numRelatedToCPErrors + 1
+
+                accumulateInDict(errCPCallpathTimeExclusive, opCallpath, sidTimeEx)
+                if len(n.children) == 0 or n not in childReturnedErrors:
+                    # n is the leaf node in the path that returns error; increment self error count
+                    accumulateInDict(
+                        errCPErrCounts,
+                        opCallpath,
+                        ErrCountsData(selfErrors=1),
+                    )
+                elif n in childReturnedErrors:
+                    # both n and at least one of its children return errors
+                    accumulateInDict(
+                        errCPErrCounts,
+                        opCallpath,
+                        ErrCountsData(propagatedErrors=1),
+                    )
+                # since n returned an error, add n's parent into the childReturnedError set
+                childReturnedErrors.add(n.parent)
+
+            elif n in childReturnedErrors:
+                opCallpath = SYNTHETIC_ERR_CP_ROOT + "->" + opCallpath
+                # n itself did not return error but at least one of its children did
+                accumulateInDict(
+                    errCPErrCounts,
+                    opCallpath,
+                    ErrCountsData(stoppedErrors=1),
+                )
+
+        return (
+            errCPCallpathTimeExclusive,
+            errCPErrCounts,
+            numCPErrors,
+            numRelatedToCPErrors,
+            savingPotential,
+        )
+
+    # Accumulate inclusive and exclustive metrics for error critical path.
+    # Include both flat (just the operation no call path) and call path profiles.
+    # Need the opTimeExclusive result from the regular critical path metrics
+
+    def accumeErrorCPMetrics(self, fullErrCP, sidTimeExclusive):
+        (
+            errCPCallpathTimeExclusive,
+            errCPErrCounts,
+            numCPErrors,
+            numRelatedToCPErrors,
+            savingPotential,
+        ) = self.handleFullErrCPMetrics(fullErrCP, sidTimeExclusive)
+
+        return ErrorCPMetrics(
+            errCPCallpathTimeExclusive,
+            errCPErrCounts,
+            savingPotential,
+            numCPErrors,
+            numRelatedToCPErrors,
+        )
+
+    def computeErrDepthHisto(
+        self,
+        curNode: GraphNode,
+        myDepth: int,
+        propToRootHisto: dict,
+        notPropToRootHisto: dict,
+        proprgatesToRoot: bool,
+        childFilter: Callable[[GraphNode], bool],
+    ) -> None:
+        # chain to root broken
+        if not curNode.returnError:
+            proprgatesToRoot = False
+
+        # iterate over childeren
+        childHasError = False
+        for c in curNode.children:
+            if c.returnError:
+                childHasError = True
+
+            if childFilter(c):
+                self.computeErrDepthHisto(
+                    c,
+                    myDepth + 1,
+                    propToRootHisto,
+                    notPropToRootHisto,
+                    proprgatesToRoot,
+                    childFilter,
+                )
+
+        if curNode.returnError:
+            if not childHasError:  # this is self error.
+                if proprgatesToRoot:
+                    accumulateInDict(propToRootHisto, myDepth, 1)
+                else:
+                    accumulateInDict(notPropToRootHisto, myDepth, 1)
+            else:
+                pass  # this is Prop error
+
+    def computeSupressErrDepthHisto(
+        self,
+        curNode: GraphNode,
+        myDepth: int,
+        histo: dict,
+        childFilter: Callable[[GraphNode], bool],
+    ) -> None:
+        # iterate over childeren
+        childHasError = False
+        for c in curNode.children:
+            if c.returnError:
+                childHasError = True
+
+            if childFilter(c):
+                self.computeSupressErrDepthHisto(c, myDepth + 1, histo, childFilter)
+
+        if not curNode.returnError and childHasError:
+            accumulateInDict(histo, myDepth, 1)
+
+    # computes the max depth of self error that propagated to root
+    def computeMaxErrDepthPropagatedToRoot(self, curNode, myDepth):
+        maxDepth = DEFAULT_MAX_DEPTH
+
+        if not curNode.returnError:
+            # base case: if I don't error out, we are done;
+            return maxDepth  # should be -1
+
+        elif len(curNode.children) == 0:
+            # another base case: if I error out but I have no children,
+            # the max self error depth is then myDepth
+            return myDepth
+
+        # if I have children, continue to traverse
+        for c in curNode.children:
+            chDepth = self.computeMaxErrDepthPropagatedToRoot(c, myDepth + 1)
+            if chDepth > maxDepth:
+                maxDepth = chDepth
+        return maxDepth
+
+    def getErrDepthHisto(self, filter: Callable[[GraphNode], bool]):
+        propToRootHisto = {}
+        notPropToRootHisto = {}
+        self.computeErrDepthHisto(
+            self.rootNode,
+            1,
+            propToRootHisto,
+            notPropToRootHisto,
+            True,
+            filter,
+        )
+        propToRootHistoQuantized = QuantizedMetrics(propToRootHisto)
+        notPropToRootHistoQuantized = QuantizedMetrics(notPropToRootHisto)
+        return propToRootHistoQuantized, notPropToRootHistoQuantized
+
+    def getSupressErrDepthHisto(self, filter: Callable[[GraphNode], bool]):
+        histo = {}
+        self.computeSupressErrDepthHisto(self.rootNode, 1, histo, filter)
+        histoQuantized = QuantizedMetrics(histo)
+        return histoQuantized
+
+    def getAllOutboundCounts(self) -> dict:
+        '''
+        Walk all spans using BFS and count outbound connections for each service.
+        Returns a dictionary mapping service names to lists of outbound counts.
+        '''
+        if self.rootNode is None:
+            return {}
+
+        service_counts = {}
+        queue = [self.rootNode]
+        visited = set()
+
+        while queue:
+            node = queue.pop(0)
+
+            if node.sid in visited:
+                continue
+            visited.add(node.sid)
+
+            service_name = self.processName[node.pid]
+            outbound_count = len(node.children)
+
+            if service_name not in service_counts:
+                service_counts[service_name] = []
+            service_counts[service_name].append(outbound_count)
+
+            queue.extend(node.children)
+
+        return service_counts
+
+    def getOutboundCount(self, serviceName: str) -> list:
+        '''
+        Walk all spans using BFS and count outbound connections for each span
+        of the given service name. Returns a list of outbound counts for the service.
+        '''
+        all_counts = self.getAllOutboundCounts()
+        return all_counts.get(serviceName, [])
+
+    def getMetrics(
+        self,
+        traceID,
+        criticalPath,
+        fullErrCP,
+        totalWork,
+        timeSavedOnWork,
+        timeSavedOnCPPessimistic,
+        timeSavedOnCPOptimistic,
+        timeSavedOnCPAllSeries,
+        propToRootErrCCT,
+        rootNode=None,
+    ):
+        """Get metrics for the given root node.
+
+        Args:
+            traceID: Trace identifier
+            criticalPath: Critical path nodes
+            fullErrCP: Full error critical path
+            totalWork: Total work computed
+            timeSavedOnWork: Time saved on work
+            timeSavedOnCPPessimistic: Time saved on CP (pessimistic)
+            timeSavedOnCPOptimistic: Time saved on CP (optimistic)
+            timeSavedOnCPAllSeries: Time saved on CP (all series)
+            propToRootErrCCT: Propagated to root error CCT
+            rootNode: Optional root node to use. If None, uses self.rootNode.
+
+        Returns:
+            Metrics object for this root node
+        """
+        node = self._get_root_node(rootNode)
+
+        # these are used to populate ErrorMetrics (see comment above the
+        # class definition for more detailed description)
+        errCounts = {}  # map from opCallpath to ErrCountsData
+        errCallChainCounts = {}  # map from opCallPath to error callchain counts
+        selfErrDepthList = []  # a list of self-error depth
+        stoppedErrDepthList = []  # a list of stopped-error depth
+        depthMap = {}  # map from depth to ErrCountsData
+        propLengthMap = {}  # map from propagation length to # of selr errors
+        resiliencyMap = {}  # map from opName to ErrCountsData
+
+        # Compute inclusive and exclustive metrics for regular and error critical path.
+        CPMetrics, sidTimeExclusive = self.accumeCPMetrics(criticalPath, traceID, node)
+        traceSz = self.filesz
+        errCPMetrics = self.accumeErrorCPMetrics(fullErrCP, sidTimeExclusive)
+        descendants, depth = self.computeGraphStats(node)
+        maxErrDepthPropToRoot = -1
+
+        # we assume the root node has depth 1
+        if node.returnError:
+            maxErrDepthPropToRoot = self.computeMaxErrDepthPropagatedToRoot(
+                node,
+                1,
+            )
+            stopErrNodeDepth = 0
+        else:
+            stopErrNodeDepth = 1
+        numAllErrors = self.computeErrorStats(
+            node,
+            1,
+            stopErrNodeDepth,
+            errCounts,
+            errCallChainCounts,
+            selfErrDepthList,
+            stoppedErrDepthList,
+            depthMap,
+            propLengthMap,
+            resiliencyMap,
+        )
+
+        cpSet = set(criticalPath)
+        propToRootHistoQuantized, notPropToRootHistoQuantized = self.getErrDepthHisto(
+            lambda x: True,  # noqa: ARG005
+        )
+        (
+            propToRootOnCPHistoQuantized,
+            notPropToRootOnCPHistoQuantized,
+        ) = self.getErrDepthHisto(lambda x: x in cpSet)
+
+        supressHistoQuantized = self.getSupressErrDepthHisto(lambda x: True)  # noqa: ARG005
+        supressOnCPHistoQuantized = self.getSupressErrDepthHisto(lambda x: x in cpSet)
+
+        errMetrics = ErrorMetrics(
+            numAllErrors,
+            errCounts,
+            errCallChainCounts,
+            selfErrDepthList,
+            stoppedErrDepthList,
+            depthMap,
+            propLengthMap,
+            resiliencyMap,
+            maxErrDepthPropToRoot,
+            propToRootHistoQuantized,
+            notPropToRootHistoQuantized,
+            propToRootOnCPHistoQuantized,
+            notPropToRootOnCPHistoQuantized,
+            supressHistoQuantized,
+            supressOnCPHistoQuantized,
+        )
+
+        if debug_on and self.numProxyRoots != 0:
+            logging.debug(f"file {self.filename} has {self.numProxyRoots} proxy roots")
+
+        cycles = {}
+        self.getCycles(node, [], [], cycles)
+
+        crossRegionCalls = {}
+        self.getCrossRegionCalls(node, crossRegionCalls)
+
+        return Metrics(
+            traceID,
+            traceSz,
+            CPMetrics,
+            errCPMetrics,
+            errMetrics,
+            totalWork,
+            timeSavedOnWork,
+            node.duration,
+            timeSavedOnCPPessimistic,
+            timeSavedOnCPOptimistic,
+            timeSavedOnCPAllSeries,
+            node.sid,
+            descendants,
+            depth,
+            len(criticalPath),
+            node.returnError,
+            propToRootErrCCT,
+            self.isCtfTest,
+            self.numProxyRoots,
+            self.tags,
+            cycles,
+            crossRegionCalls,
+        )
+
+    def getCycles(self, node, nodeCallPath, opCallPath, cycles):
+        if self.canonicalOpName(node) in opCallPath:
+            # Find the last occurence of the operation in the call path
+            parent_self_ind = len(opCallPath) - opCallPath[::-1].index(self.canonicalOpName(node)) - 1
+            parent_self = nodeCallPath[parent_self_ind]
+            if node.spanKind == SpanKind.CLIENT and parent_self.spanKind == SpanKind.CLIENT:
+                if len(set(opCallPath[parent_self_ind:])) > 1:
+                    cycles[node.sid] = opCallPath[parent_self_ind:]+[self.canonicalOpName(node)]  # noqa: RUF005
+                    logging.debug(f"Cycle detected in {self.filename} for {self.canonicalOpName(node)}, spanID: {node.sid}")
+                    logging.debug(f"call path: {' -> '.join(opCallPath[parent_self_ind:])} -> {self.canonicalOpName(node)}")
+                else:
+                    cycles[node.sid] = opCallPath[parent_self_ind:]+[self.canonicalOpName(node)]  # noqa: RUF005
+                    logging.debug(f"Cycle detected in {self.filename} for {self.canonicalOpName(node)}, spanID: {node.sid}")
+                    logging.debug("But there is only one operation in the cycle")
+        nodeCallPath.append(node)
+        opCallPath.append(self.canonicalOpName(node))
+        for childNode in node.children:
+            self.getCycles(childNode, nodeCallPath, opCallPath, cycles)
+        nodeCallPath.pop()
+        opCallPath.pop()
+
+    def getCrossRegionCalls(self, node, crossRegionCalls):
+        """
+        Detect cross-region calls where parent and child are in different regions
+        and have the exact same operation name.
+        """
+        # Check if this node has a parent
+        if node.parent:
+            parent = node.parent
+            # Get region/zone info for parent and child
+            parentRegionInfo = self.regionMap.get(parent.pid)
+            childRegionInfo = self.regionMap.get(node.pid)
+
+            if parentRegionInfo and childRegionInfo:
+                # Extract region names by stripping trailing digits from region codes
+                # (e.g. "us-west-1" stays "uswest", "eu-west-1a" becomes "euwest")
+                parentRegion = ''.join(c for c in parentRegionInfo if c.isalpha())
+                childRegion = ''.join(c for c in childRegionInfo if c.isalpha())
+
+                # Check if they are in different regions and have the same operation name
+                if (parentRegion != childRegion and parent.opName == node.opName):
+                    # Calculate duration information
+                    parentDuration = parent.duration if hasattr(parent, 'duration') else 0
+                    childDuration = node.duration if hasattr(node, 'duration') else 0
+                    durationRatio = parentDuration / childDuration if childDuration > 0 else 0
+
+                    crossRegionCall = {
+                        'parentSpanId': parent.sid,
+                        'childSpanId': node.sid,
+                        'operationName': node.opName,
+                        'parentRegion': parentRegion,
+                        'childRegion': childRegion,
+                        'parentService': self.processName.get(parent.pid, 'unknown'),
+                        'childService': self.processName.get(node.pid, 'unknown'),
+                        'parentDuration': parentDuration,
+                        'childDuration': childDuration,
+                        'durationRatio': round(durationRatio, 2),
+                        'callPath': self.getCallPath(node)
+                    }
+                    crossRegionCalls[node.sid] = crossRegionCall
+
+                    logging.debug(f"Cross-region call detected in {self.filename}")
+                    logging.debug(f"Parent span {parent.sid} in {parentRegion}, child span {node.sid} in {childRegion}")
+                    logging.debug(f"Operation: {node.opName}")
+
+        # Recursively check children
+        for childNode in node.children:
+            self.getCrossRegionCalls(childNode, crossRegionCalls)
+
+    def getSplitChildTraceIds(self, jsonData):
+        """
+        Identify child trace IDs from split point markers in a parent trace.
+
+        Delegates to the module-level get_split_child_trace_ids() function.
+
+        Args:
+            jsonData: Jaeger trace JSON data (same format as Graph constructor)
+
+        Returns:
+            List of dicts with child_trace_id, child_span_id,
+            split_point_span_id, and split_point_operation.
+        """
+        return get_split_child_trace_ids(jsonData)
+
+    """
+    End of class Graph definition
+    """
