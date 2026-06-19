@@ -1179,13 +1179,13 @@ class TestParseNodeFromParquet(TestCase):
         }
 
         # Act
-        potentialRoots, isCtfTest = g.parseNodeFromParquet(parquetData)
+        potentialRoots, isTestTrace = g.parseNodeFromParquet(parquetData)
 
         # Debugging: Print out the contents of potentialRoots
         print(f"Potential roots: {potentialRoots}")
 
         # Assert
-        self.assertFalse(isCtfTest)
+        self.assertFalse(isTestTrace)
         mock_store_node_data.assert_called()
         mock_build_parent_child_relationships.assert_called_once()
         mock_propagate_errors.assert_called_once()
@@ -1225,7 +1225,7 @@ class TestParseNodeFromParquet(TestCase):
         }
 
         # Act
-        potentialRoots, isCtfTest = g.parseNodeFromParquet(parquetData)
+        potentialRoots, isTestTrace = g.parseNodeFromParquet(parquetData)
 
         # Assert
         self.assertEqual(g.numErrors, 1)  # Since the mock returns True for errors

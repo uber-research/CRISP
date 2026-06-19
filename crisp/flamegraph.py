@@ -276,7 +276,7 @@ def flameGraph(
     outputDir,
     service: str,
     operation: str,
-    ignoreCtfTests: bool,
+    ignoreTestTraces: bool,
     filePrefix: str = "",
     doRanges: bool = False,
 ):
@@ -300,7 +300,7 @@ def flameGraph(
 
         cpps.append((totalTime, r.CPMetrics))
 
-        if r.isCtfTest and ignoreCtfTests:
+        if r.isTestTrace and ignoreTestTraces:
             continue  # skip the metric where the root span itself returns error
 
         if r.rootReturnError:

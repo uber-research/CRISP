@@ -431,7 +431,7 @@ def getTraceIDReal(c: common.Config):
         traceIDs = []
         # The flags is a bit mask; sampled traces have bit-0 set,
         # debug traces have bit-1 set.
-        # Producton trace has flag 1 whereas ctf test trace has flag 9.
+        # Producton trace has flag 1 whereas synthetic test trace has flag 9.
         # Some endpoints (e.g., SIA service) have both "sampled traces" and "debug traces" => 0b11 => decimal 3 set.
         # We first try flag=1; if it returns no traces, we try flag=3.
         for flag in [1, 3]:

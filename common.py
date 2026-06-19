@@ -274,7 +274,7 @@ class Config:
         topN: int = 5,
         numHMTrace: int = 100,
         numOperation: int = 100,
-        ignoreCtfTests: bool = False,
+        ignoreTestTraces: bool = False,
         tracesDir: str = "traces",
         jaegerOfflineToken: typing.Optional[str] = None,
         terrablobOfflineToken: typing.Optional[str] = None,
@@ -318,7 +318,7 @@ class Config:
         self.topN = topN
         self.numHMTrace = numHMTrace
         self.numOperation = numOperation
-        self.ignoreCtfTests = ignoreCtfTests
+        self.ignoreTestTraces = ignoreTestTraces
         self.jaegerTraceFiles = []
         self.tracesDir = tracesDir
         self.filesToUpload = None
