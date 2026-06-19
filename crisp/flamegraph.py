@@ -236,19 +236,22 @@ def genFlameGraph(
             )
             if average:
                 subtitle = "Avg of " + subtitle
-            subprocess.check_call(
-                (
-                    flameGraphPerl,
-                    "--title",
-                    title,
-                    "--subtitle",
-                    subtitle,
-                    "--countname",
-                    countname,
-                    flamegraphPath,
-                ),
-                stdout=f,
-            )
+            try:
+                subprocess.check_call(
+                    (
+                        flameGraphPerl,
+                        "--title",
+                        title,
+                        "--subtitle",
+                        subtitle,
+                        "--countname",
+                        countname,
+                        flamegraphPath,
+                    ),
+                    stdout=f,
+                )
+            except FileNotFoundError:
+                logging.info("flamegraph.pl not found; wrote .cct file but skipped SVG")
 
         # if there are predecessors, do a differential analysis with them
         if doDiffGraph:
@@ -258,14 +261,21 @@ def genFlameGraph(
                 # produce diff CCT
                 with open(diffFilePath, "w") as f:
                     print((diffFoldPerl, flamegraphPath, predFile))
-                    subprocess.check_call(
-                        (diffFoldPerl, predFile.rstrip(".svg"), flamegraphPath),
-                        stdout=f,
-                    )
+                    try:
+                        subprocess.check_call(
+                            (diffFoldPerl, predFile.rstrip(".svg"), flamegraphPath),
+                            stdout=f,
+                        )
+                    except FileNotFoundError:
+                        logging.info("difffolded.pl not found; skipping diff CCT")
+                        continue
                 # produce diff SVG
                 diffSVGFile = diffFilePath + ".svg"
                 with open(diffSVGFile, "w") as f:
-                    subprocess.check_call((flameGraphPerl, diffFilePath), stdout=f)
+                    try:
+                        subprocess.check_call((flameGraphPerl, diffFilePath), stdout=f)
+                    except FileNotFoundError:
+                        logging.info("flamegraph.pl not found; skipping diff SVG")
                 differentialFlameGraphFiles.append(diffSVGFile)
 
     return fgPctFilePair, differentialFlameGraphFiles
