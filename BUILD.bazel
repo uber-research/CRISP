@@ -45,9 +45,14 @@ py_test(
         "//crisp:tb_client",
         "//crisp:storage",
         "//crisp:pipeline",
+        "//crisp:get_trace",
+        "//crisp:exceptions",
         "@pypi//boto3",
         "@pypi//botocore",
         "@pypi//pytest",
+        "@pypi//requests",
+        "@pypi//ratelimit",
+        "@pypi//tenacity",
     ],
     env = {"MPLBACKEND": "Agg"},
     imports = ["."],
@@ -144,6 +149,20 @@ py_test(
     deps = [
         "//crisp:pipeline",
         "//crisp:common",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_get_trace",
+    srcs = ["tests/test_get_trace.py"],
+    deps = [
+        "//crisp:get_trace",
+        "//crisp:common",
+        "//crisp:exceptions",
+        "@pypi//requests",
+        "@pypi//ratelimit",
+        "@pypi//tenacity",
     ],
     imports = ["."],
 )

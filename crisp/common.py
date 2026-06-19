@@ -134,6 +134,7 @@ class Config:
         endTimestamp: typing.Optional[int] = None,
         ignoreLastNMinutes: int = 10,
         timeoutSec: int = 60,
+        jaegerQueryUrl: str = "http://localhost:16686",
         useMidnightTime: bool = False,
         rootTrace: bool = False,
         anonymize: bool = False,
@@ -172,6 +173,7 @@ class Config:
         self.lookbackDays = lookbackDays
         self.ignoreLastNMinutes = ignoreLastNMinutes
         self.timeoutSec = timeoutSec
+        self.jaegerQueryUrl = jaegerQueryUrl
         self.useMidnightTime = useMidnightTime
         self.rootTrace = rootTrace
         self.anonymize = anonymize

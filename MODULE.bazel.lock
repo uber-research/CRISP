@@ -276,7 +276,7 @@
         "usagesDigest": "bW0K8rtcOKhprT4m41L0QM8RyjxUZYMvAMydPv5WUB8=",
         "recordedFileInputs": {
           "@@rules_python~//tools/publish/requirements_linux.txt": "8175b4c8df50ae2f22d1706961884beeb54e7da27bd2447018314a175981997d",
-          "@@//requirements_lock.txt": "9e06977e71fc09b4c47f7207a9fa624c10842a509375906be929d03b04ccb2a7",
+          "@@//requirements_lock.txt": "d8f29933bd3f3dbd594e2f252e165d71baff592103f53bf4280135db885a0931",
           "@@rules_fuzzing~//fuzzing/requirements.txt": "ab04664be026b632a0d2a2446c4f65982b7654f5b6851d2f9d399a19b7242a5b",
           "@@rules_python~//tools/publish/requirements_windows.txt": "7673adc71dc1a81d3661b90924d7a7c0fc998cd508b3cb4174337cef3f2de556",
           "@@protobuf~//python/requirements.txt": "983be60d3cec4b319dcab6d48aeb3f5b2f7c3350f26b3a9e97486c37967c73c5",
@@ -408,6 +408,26 @@
               "requirement": "botocore==1.42.85"
             }
           },
+          "pypi_311_certifi": {
+            "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
+            "ruleClassName": "whl_library",
+            "attributes": {
+              "dep_template": "@pypi//{name}:{target}",
+              "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
+              "repo": "pypi_311",
+              "requirement": "certifi==2026.6.17"
+            }
+          },
+          "pypi_311_charset_normalizer": {
+            "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
+            "ruleClassName": "whl_library",
+            "attributes": {
+              "dep_template": "@pypi//{name}:{target}",
+              "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
+              "repo": "pypi_311",
+              "requirement": "charset-normalizer==3.4.7"
+            }
+          },
           "pypi_311_contourpy": {
             "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
             "ruleClassName": "whl_library",
@@ -436,6 +456,16 @@
               "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
               "repo": "pypi_311",
               "requirement": "fonttools==4.62.1"
+            }
+          },
+          "pypi_311_idna": {
+            "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
+            "ruleClassName": "whl_library",
+            "attributes": {
+              "dep_template": "@pypi//{name}:{target}",
+              "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
+              "repo": "pypi_311",
+              "requirement": "idna==3.18"
             }
           },
           "pypi_311_iniconfig": {
@@ -598,6 +628,26 @@
               "requirement": "pyyaml==6.0.3"
             }
           },
+          "pypi_311_ratelimit": {
+            "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
+            "ruleClassName": "whl_library",
+            "attributes": {
+              "dep_template": "@pypi//{name}:{target}",
+              "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
+              "repo": "pypi_311",
+              "requirement": "ratelimit==2.2.1"
+            }
+          },
+          "pypi_311_requests": {
+            "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
+            "ruleClassName": "whl_library",
+            "attributes": {
+              "dep_template": "@pypi//{name}:{target}",
+              "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
+              "repo": "pypi_311",
+              "requirement": "requests==2.34.2"
+            }
+          },
           "pypi_311_s3transfer": {
             "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
             "ruleClassName": "whl_library",
@@ -616,6 +666,16 @@
               "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
               "repo": "pypi_311",
               "requirement": "six==1.17.0"
+            }
+          },
+          "pypi_311_tenacity": {
+            "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
+            "ruleClassName": "whl_library",
+            "attributes": {
+              "dep_template": "@pypi//{name}:{target}",
+              "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
+              "repo": "pypi_311",
+              "requirement": "tenacity==9.1.4"
             }
           },
           "pypi_311_urllib3": {
@@ -3155,9 +3215,12 @@
               "whl_map": {
                 "boto3": "{\"pypi_311_boto3\":[{\"version\":\"3.11\"}]}",
                 "botocore": "{\"pypi_311_botocore\":[{\"version\":\"3.11\"}]}",
+                "certifi": "{\"pypi_311_certifi\":[{\"version\":\"3.11\"}]}",
+                "charset_normalizer": "{\"pypi_311_charset_normalizer\":[{\"version\":\"3.11\"}]}",
                 "contourpy": "{\"pypi_311_contourpy\":[{\"version\":\"3.11\"}]}",
                 "cycler": "{\"pypi_311_cycler\":[{\"version\":\"3.11\"}]}",
                 "fonttools": "{\"pypi_311_fonttools\":[{\"version\":\"3.11\"}]}",
+                "idna": "{\"pypi_311_idna\":[{\"version\":\"3.11\"}]}",
                 "iniconfig": "{\"pypi_311_iniconfig\":[{\"version\":\"3.11\"}]}",
                 "jinja2": "{\"pypi_311_jinja2\":[{\"version\":\"3.11\"}]}",
                 "jmespath": "{\"pypi_311_jmespath\":[{\"version\":\"3.11\"}]}",
@@ -3174,16 +3237,22 @@
                 "pytest": "{\"pypi_311_pytest\":[{\"version\":\"3.11\"}]}",
                 "python_dateutil": "{\"pypi_311_python_dateutil\":[{\"version\":\"3.11\"}]}",
                 "pyyaml": "{\"pypi_311_pyyaml\":[{\"version\":\"3.11\"}]}",
+                "ratelimit": "{\"pypi_311_ratelimit\":[{\"version\":\"3.11\"}]}",
+                "requests": "{\"pypi_311_requests\":[{\"version\":\"3.11\"}]}",
                 "s3transfer": "{\"pypi_311_s3transfer\":[{\"version\":\"3.11\"}]}",
                 "six": "{\"pypi_311_six\":[{\"version\":\"3.11\"}]}",
+                "tenacity": "{\"pypi_311_tenacity\":[{\"version\":\"3.11\"}]}",
                 "urllib3": "{\"pypi_311_urllib3\":[{\"version\":\"3.11\"}]}"
               },
               "packages": [
                 "boto3",
                 "botocore",
+                "certifi",
+                "charset_normalizer",
                 "contourpy",
                 "cycler",
                 "fonttools",
+                "idna",
                 "iniconfig",
                 "jinja2",
                 "jmespath",
@@ -3200,8 +3269,11 @@
                 "pytest",
                 "python_dateutil",
                 "pyyaml",
+                "ratelimit",
+                "requests",
                 "s3transfer",
                 "six",
+                "tenacity",
                 "urllib3"
               ],
               "groups": {}
