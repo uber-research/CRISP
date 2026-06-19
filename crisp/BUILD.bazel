@@ -77,3 +77,12 @@ py_library(
         "//crisp:pkg",
     ],
 )
+
+py_library(
+    name = "flamegraph",
+    srcs = ["flamegraph.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crisp/shared:shared",
+    ],
+)
