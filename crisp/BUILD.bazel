@@ -60,3 +60,20 @@ py_library(
         "//crisp/utils:utils",
     ],
 )
+
+py_library(
+    name = "yaml_merger",
+    srcs = ["yaml_merger.py"],
+    visibility = ["//visibility:public"],
+    deps = [],
+)
+
+py_library(
+    name = "trace_merger",
+    srcs = ["trace_merger.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crisp:graph",
+        "//crisp:pkg",
+    ],
+)
