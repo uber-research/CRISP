@@ -76,9 +76,9 @@ When porting, apply this decision in order:
 | -------------------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------- |
 | `output/tests/test_csv_generators.py::TestGenCyclesCSVFile.*` (×2)   | PR 8a             | `@patch("...common.Config")` decorator; patch-target module `crisp.common` does not exist yet.        |
 | `output/tests/test_csv_generators.py::TestGenSummaryCSVFile.*` (×2)  | PR 8a             | Same as above. Helper `getDummyMetric` (uses `crisp.shared.models.Metrics`) returns with these tests. |
-| `tests/test_common.py::TbutilTestCase::test_downloadFromTerrablob`    | PR 8b             | TBClient not yet ported.                                                                              |
-| `tests/test_common.py::TbutilTestCase::test_uploadToTerrablob`        | PR 8b             | TBClient not yet ported.                                                                              |
-| `tests/test_common.py::TbutilTestCase::test_constructPathAndUploadToTerrablob` | PR 8b    | TBClient not yet ported.                                                                              |
-| `tests/test_common.py::TestGetTBClient.*` (×3)                        | PR 8b             | TBClient not yet ported.                                                                              |
-| `tests/test_common.py::TestDirExistsOnTB.*`                           | PR 8b             | TBClient not yet ported.                                                                              |
-| `tests/test_common.py::TestBlobExistsOnTB.*`                          | PR 8b             | TBClient not yet ported.                                                                              |
+| `tests/test_common.py::TbutilTestCase::test_downloadFromTerrablob`    | PR 11             | TBClient not yet ported.                                                                              |
+| `tests/test_common.py::TbutilTestCase::test_uploadToTerrablob`        | PR 11             | TBClient not yet ported.                                                                              |
+| `tests/test_common.py::TbutilTestCase::test_constructPathAndUploadToTerrablob` | PR 11    | TBClient not yet ported.                                                                              |
+| `tests/test_common.py::TestGetTBClient.*` (×3)                        | PR 11             | TBClient not yet ported.                                                                              |
+| `tests/test_common.py::TestDirExistsOnTB.*`                           | PR 11             | TBClient not yet ported.                                                                              |
+| `tests/test_common.py::TestBlobExistsOnTB.*`                          | PR 11             | TBClient not yet ported.                                                                              |

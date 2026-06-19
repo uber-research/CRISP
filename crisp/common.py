@@ -283,3 +283,23 @@ def getMidnightTimeStamp():
 # Helper function to convert signed int to hex string
 def intToHexString(value):
     return value.to_bytes(8, byteorder='big', signed=True).hex()
+
+
+def serviceOperationToTBPath(service, operation, blobPath, suffix):
+    return os.path.join(
+        blobPath,
+        replaceNonAlphaNumericWithUnderscore(service),
+        replaceNonAlphaNumericWithUnderscore(operation),
+        suffix,
+    )
+
+
+SERVICE_TAG_NAME = "service_name"
+OPERATION_TAG_NAME = "operation_name"
+
+
+def getServiceOperationTags(config: "Config") -> dict[str, str]:
+    return {
+        SERVICE_TAG_NAME: replaceNonAlphaNumericWithUnderscore(config.serviceName),
+        OPERATION_TAG_NAME: replaceNonAlphaNumericWithUnderscore(config.operationName),
+    }
