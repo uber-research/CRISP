@@ -83,3 +83,6 @@ When porting, apply this decision in order:
 | `tests/test_common.py::TestDirExistsOnTB.*`                           | PR 11             | TBClient not yet ported.                                                                              |
 | `tests/test_common.py::TestBlobExistsOnTB.*`                          | PR 11             | TBClient not yet ported.                                                                              |
 | *(all PR 9d items unblocked — see port/pr-09d-graph-final commit)*      | —                 | —                                                                                                     |
+| `tests/test_cct_utils.py::TestCreateProtobufResponse`                  | PR 11             | Requires protobuf stub not yet available.                                                             |
+| `tests/test_cct_utils.py::TestCreateProtobufResponseWithExemplars`     | PR 11             | Requires protobuf stub not yet available.                                                             |
+| `tests/test_cct_utils.py::TestCCTUtilsIntegration`                     | PR 11             | Both test methods call `create_protobuf_response_with_exemplars`; requires protobuf stub.             |
