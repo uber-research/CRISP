@@ -16,6 +16,8 @@ import yaml
 import crisp.common as common
 import crisp.flamegraph as flamegraph
 from crisp.graph import Graph
+from crisp.metrics.aggregators import mergeCallChains, mergeExampleID
+from crisp.output.formatters import makeClickable, renameSortableIcon
 from crisp.shared.utils import getLeafNodeFromCallPath
 
 
@@ -664,15 +666,6 @@ def getTraceIdFromFilePath(traceFile: str) -> str:
     return traceFile.split("/")[-1].split(".")[0]
 
 
-def mergeCallChains(callMap: dict, totalCallMap: dict) -> None:
-    """Collect all call chains per operation name into totalCallMap."""
-    for opName, names in callMap.items():
-        if opName not in totalCallMap:
-            totalCallMap[opName] = set()
-        for name in names:
-            totalCallMap[opName].add(name)
-
-
 def mergeCallpathTime(
     callMap: dict,
     callPathMap: dict,
@@ -686,27 +679,6 @@ def mergeCallpathTime(
             if p not in totalBreakdownTime[opName]:
                 totalBreakdownTime[opName][p] = []
             totalBreakdownTime[opName][p].append(callPathMap[p])
-
-
-def mergeExampleID(
-    traceID: str,
-    localExampleMap: dict,
-    exampleMap: dict,
-) -> None:
-    """Maintain the worst-case example (traceID, spanID, time) per call path."""
-    for opName in localExampleMap:
-        if opName not in exampleMap:
-            exampleMap[opName] = (
-                traceID,
-                localExampleMap[opName][0],
-                localExampleMap[opName][1],
-            )
-        elif localExampleMap[opName][1] > exampleMap[opName][2]:
-            exampleMap[opName] = (
-                traceID,
-                localExampleMap[opName][0],
-                localExampleMap[opName][1],
-            )
 
 
 def aggregateMetrics(
@@ -889,10 +861,6 @@ def reindexDescending(
 # Display helpers
 # ---------------------------------------------------------------------------
 
-def makeClickable(url: str, name: str) -> str:
-    return '<a href="{}" rel="noopener noreferrer" target="_blank">{}</a>'.format(url, name)
-
-
 def addHyperLinkToTrace(
     df: "pd.DataFrame",
     tracespanIDmap: dict,
@@ -905,13 +873,6 @@ def addHyperLinkToTrace(
             "{}/trace/{}?uiFind={}".format(jaegerQueryUrl, k, v), "#"
         )
     df.rename(columns=hyperLinkHT, inplace=True)
-    return df
-
-
-def renameSortableIcon(df: "pd.DataFrame", columns: list) -> "pd.DataFrame":
-    """Append a FontAwesome sort icon to each sortable column header."""
-    sortableRenameHT = {col: col + ' <i class="fas fa-sort"></i>' for col in columns}
-    df.rename(columns=sortableRenameHT, inplace=True)
     return df
 
 
