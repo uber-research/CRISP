@@ -38,6 +38,8 @@ py_test(
         "//crisp:constants",
         "//crisp:graph",
         "//crisp:pkg",
+        "//crisp:yaml_merger",
+        "//crisp:trace_merger",
         "@pypi//pytest",
     ],
     env = {"MPLBACKEND": "Agg"},
@@ -70,5 +72,15 @@ py_test(
     name = "test_graph",
     srcs = ["tests/test_graph.py"],
     deps = ["//crisp:graph"],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_merger",
+    srcs = ["tests/test_merger.py"],
+    deps = [
+        "//crisp:yaml_merger",
+        "@pypi//pyyaml",
+    ],
     imports = ["."],
 )
