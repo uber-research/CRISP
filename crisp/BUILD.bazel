@@ -86,3 +86,10 @@ py_library(
         "//crisp/shared:shared",
     ],
 )
+
+py_library(
+    name = "cct_utils",
+    srcs = ["cct_utils.py"],
+    visibility = ["//visibility:public"],
+    deps = [],
+)
