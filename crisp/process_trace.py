@@ -499,4 +499,408 @@ def initArgs():
     return c
 
 
-# --- Remaining functions (getMatchingRootsFromGraph through main) will be added in PRs 13b–13e ---
+# ---------------------------------------------------------------------------
+# HTML report templates
+# ---------------------------------------------------------------------------
+
+DATE_TIME = datetime.now().strftime("%d_%B_%Y_%H_%M_%S")
+
+HTML_PREFIX = '''
+<html>
+  <head><title>CRISP: Critical Path Report</title>
+  <style>
+.row_heading {
+  text-align: right;
+}
+/* Tooltip container */
+.tooltip {
+  position: relative;
+  display: inline-block;
+  border-bottom: 1px dotted black;
+}
+/* Tooltip text */
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: max-content;
+  background-color: black;
+  color: #fff;
+  text-align: left;
+  padding: 5px 0;
+  border-radius: 6px;
+  position: absolute;
+  z-index: 1;
+}
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+}.table-sortable th {
+  cursor: pointer;
+}
+
+.table-sortable .th-sort-asc::after {
+  content: " \\003c";
+}
+
+.table-sortable .th-sort-desc::after {
+  content: " \\003e";
+}
+
+.table-sortable .th-sort-asc::after,
+.table-sortable .th-sort-desc::after {
+  margin-left: 5px;
+}
+
+.table-sortable .th-sort-asc,
+.table-sortable .th-sort-desc {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+</style>
+<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.7/css/all.css">
+  </head>
+  <body>
+  '''
+
+HTML_GENERATION_TIME = "<h1>Critical path generated on %s </h1>" % DATE_TIME
+
+HTML_SUFFIX = '''
+  <script type = "text/javascript">
+  /**
+ * Sorts a HTML table.
+ *
+ * @param {HTMLTableElement} table The table to sort
+ * @param {number} column The index of the column to sort
+ * @param {boolean} asc Determines if the sorting will be in ascending order
+ */
+function sortTableByColumn(table, column, asc = true) {
+    const dirModifier = asc ? 1 : -1;
+    const tBody = table.tBodies[0];
+    const rows = Array.from(tBody.querySelectorAll("tr"));
+
+    const sortedRows = rows.sort((a, b) => {
+        const aColText = Number(a.querySelector(`td:nth-child(${ column + 1 })`).textContent.trim())
+        const bColText = Number(b.querySelector(`td:nth-child(${ column + 1 })`).textContent.trim());
+
+        return aColText > bColText ? (1 * dirModifier) : (-1 * dirModifier);
+    });
+
+    while (tBody.firstChild) {
+        tBody.removeChild(tBody.firstChild);
+    }
+
+    tBody.append(...sortedRows);
+
+    table.querySelectorAll("th").forEach(th => th.classList.remove("th-sort-asc", "th-sort-desc"));
+    table.querySelector(`th:nth-child(${ column + 1})`).classList.toggle("th-sort-asc", asc);
+    table.querySelector(`th:nth-child(${ column + 1})`).classList.toggle("th-sort-desc", !asc);
+}
+
+document.querySelectorAll(".table-sortable th").forEach(headerCell => {
+    const headerIndex = Array.prototype.indexOf.call(headerCell.parentElement.children, headerCell);
+    if ((headerIndex > 1 && headerIndex) <= 4 || (headerIndex >= 8 && headerIndex <= 10)) {
+        headerCell.addEventListener("click", () => {
+            const tableElement = headerCell.parentElement.parentElement.parentElement;
+            const currentIsAscending = headerCell.classList.contains("th-sort-asc");
+
+            sortTableByColumn(tableElement, headerIndex, !currentIsAscending);
+        });
+    }
+});
+
+  </script>
+  </body>
+</html>
+'''
+
+
+# ---------------------------------------------------------------------------
+# Single-trace processing
+# ---------------------------------------------------------------------------
+
+def process(filename: str, config: common.Config) -> Any:
+    """Process one Jaeger JSON trace file and return its Metrics."""
+    with open(filename, "r") as f:
+        data = json.load(f)
+
+    graph = Graph(
+        data,
+        config.serviceName,
+        config.operationName,
+        filename,
+        config.rootTrace,
+    )
+
+    if graph.rootNode is None:
+        return Metrics({}, {}, {}, {}, {}, {}, {}, 0, 0, 0)
+
+    if config.ignoreTestTraces and graph.isTestTrace:
+        return Metrics({}, {}, {}, {}, {}, {}, {}, 0, 0, 0)
+
+    res = graph.findCriticalPath()
+    logging.debug("critical path: %s", res)
+
+    metrics = graph.getMetrics(res)
+    logging.debug("opTimeExclusive: %s", metrics.opTimeExclusive)
+    logging.debug("checkResults: %s", graph.checkResults(metrics.opTimeExclusive))
+
+    # Inject a synthetic totalTime entry so percentile logic has a denominator.
+    metrics.opTimeExclusive["totalTime"] = graph.rootNode.duration
+    metrics.opTimeInclusive["totalTime"] = graph.rootNode.duration
+    return metrics
+
+
+def mapReduce(numWorkers: int, jaegerTraceFiles: list, config: common.Config) -> list:
+    """Build graph + critical path for each trace file using a process pool."""
+    process_fn = partial(process, config=config)
+    with mp.Pool(numWorkers) as p:
+        metrics = p.map(process_fn, jaegerTraceFiles)
+    return metrics
+
+
+# ---------------------------------------------------------------------------
+# Aggregate data structures
+# ---------------------------------------------------------------------------
+
+class SummaryResult:
+    """
+    Holds aggregate measurements across all traces as dictionaries.
+
+    Attributes:
+        opTime: flat profile — exclusive or inclusive operation times per trace.
+        callpathTime: call-path profile — per-operation call-chain times.
+        exampleMap: per call-path worst-case (traceID, spanID, time).
+    """
+
+    def __init__(self, opTime: dict, callpathTime: dict, exampleMap: dict) -> None:
+        self.opTime = opTime
+        self.callpathTime = callpathTime
+        self.exampleMap = exampleMap
+
+
+# ---------------------------------------------------------------------------
+# Merge helpers
+# ---------------------------------------------------------------------------
+
+def getTraceIdFromFilePath(traceFile: str) -> str:
+    """Extract trace ID from a path like /foo/bar/73212187.json → '73212187'."""
+    return traceFile.split("/")[-1].split(".")[0]
+
+
+def mergeCallChains(callMap: dict, totalCallMap: dict) -> None:
+    """Collect all call chains per operation name into totalCallMap."""
+    for opName, names in callMap.items():
+        if opName not in totalCallMap:
+            totalCallMap[opName] = set()
+        for name in names:
+            totalCallMap[opName].add(name)
+
+
+def mergeCallpathTime(
+    callMap: dict,
+    callPathMap: dict,
+    totalBreakdownTime: dict,
+) -> None:
+    """Collect per-call-path times into totalBreakdownTime."""
+    for opName, paths in callMap.items():
+        if opName not in totalBreakdownTime:
+            totalBreakdownTime[opName] = {}
+        for p in paths:
+            if p not in totalBreakdownTime[opName]:
+                totalBreakdownTime[opName][p] = []
+            totalBreakdownTime[opName][p].append(callPathMap[p])
+
+
+def mergeExampleID(
+    traceID: str,
+    localExampleMap: dict,
+    exampleMap: dict,
+) -> None:
+    """Maintain the worst-case example (traceID, spanID, time) per call path."""
+    for opName in localExampleMap:
+        if opName not in exampleMap:
+            exampleMap[opName] = (
+                traceID,
+                localExampleMap[opName][0],
+                localExampleMap[opName][1],
+            )
+        elif localExampleMap[opName][1] > exampleMap[opName][2]:
+            exampleMap[opName] = (
+                traceID,
+                localExampleMap[opName][0],
+                localExampleMap[opName][1],
+            )
+
+
+def aggregateMetrics(
+    metrics: list,
+    jaegerTraceFiles: list,
+) -> tuple:
+    """Compute aggregate exclusive/inclusive SummaryResult and aggregateCallMap."""
+    exclusive = SummaryResult({}, {}, {})
+    inclusive = SummaryResult({}, {}, {})
+    aggregateCallMap: dict = {}
+
+    for i, traceFile in enumerate(jaegerTraceFiles):
+        traceID = getTraceIdFromFilePath(traceFile)
+
+        exclusive.opTime[traceID] = metrics[i].opTimeExclusive
+        inclusive.opTime[traceID] = metrics[i].opTimeInclusive
+
+        mergeCallChains(
+            callMap=metrics[i].callChain,
+            totalCallMap=aggregateCallMap,
+        )
+        mergeCallpathTime(
+            callMap=metrics[i].callChain,
+            callPathMap=metrics[i].callpathTimeExlusive,
+            totalBreakdownTime=exclusive.callpathTime,
+        )
+        mergeCallpathTime(
+            callMap=metrics[i].callChain,
+            callPathMap=metrics[i].callpathTimeInclusive,
+            totalBreakdownTime=inclusive.callpathTime,
+        )
+        mergeExampleID(
+            traceID=traceID,
+            localExampleMap=metrics[i].exclusiveExampleMap,
+            exampleMap=exclusive.exampleMap,
+        )
+        mergeExampleID(
+            traceID=traceID,
+            localExampleMap=metrics[i].inclusiveExampleMap,
+            exampleMap=inclusive.exampleMap,
+        )
+
+    return exclusive, inclusive, aggregateCallMap
+
+
+def getOutputDir(args: Any) -> str:
+    """Return the output directory: file's parent dir if --file was given, else inputDir."""
+    if args.file is not None:
+        return os.path.dirname(args.file.name)
+    return args.inputDir
+
+
+# ---------------------------------------------------------------------------
+# DataFrame / percentile helpers
+# ---------------------------------------------------------------------------
+
+class PVal:
+    """Holds percentile values and percentages for one percentile level."""
+
+    def __init__(self, percentile: float, percentileStr: str) -> None:
+        self.percentile = percentile
+        self.percentileStr = percentileStr
+        self.pVal: dict = {}
+        self.pPct: dict = {}
+
+    def percentileWithPercentSign(self) -> str:
+        return self.percentileStr + "%"
+
+
+def insertInDF(
+    metric: SummaryResult,
+    opsStableOrder: list,
+    traceIDsStableOrder: list,
+) -> "pd.DataFrame":
+    """Build a DataFrame[traceID × operation] from per-trace op times."""
+    df = pd.DataFrame(index=traceIDsStableOrder)
+    for op in opsStableOrder:
+        opColumn = [
+            metric.opTime[trace].get(op, 0) for trace in traceIDsStableOrder
+        ]
+        df.insert(len(df.columns), op, opColumn)
+    return df
+
+
+def addPercentileColumns(
+    df: "pd.DataFrame",
+    percentiles: tuple,
+) -> "pd.DataFrame":
+    """
+    Transpose df and prepend percentile (value + pct-of-totalTime) columns.
+
+    Input shape:  traceID  × operation
+    Output shape: operation × (P50 P95 P99 P50% P95% P99%  traceID…)
+    """
+    columnsToAdd: dict = {}
+    for p in percentiles:
+        columnsToAdd[p.percentileStr] = []
+        columnsToAdd[p.percentileWithPercentSign()] = []
+
+    for p in percentiles:
+        denominator = df["totalTime"].quantile(p.percentile)
+        for col in df:
+            nonZeros = df[col].loc[df[col] != 0]
+            if len(nonZeros) == 0:
+                p.pVal[col] = 0
+                p.pPct[col] = 0
+            else:
+                p.pVal[col] = nonZeros.quantile(p.percentile)
+                p.pPct[col] = (p.pVal[col] / denominator) if denominator != 0 else 0
+            columnsToAdd[p.percentileStr].append(p.pVal[col])
+            columnsToAdd[p.percentileWithPercentSign()].append(p.pPct[col])
+
+    df = df.transpose()
+
+    for i, p in enumerate(percentiles):
+        df.insert(i, p.percentileStr, columnsToAdd[p.percentileStr])
+    for i, p in enumerate(percentiles):
+        df.insert(
+            len(percentiles) + i,
+            p.percentileWithPercentSign(),
+            columnsToAdd[p.percentileWithPercentSign()],
+        )
+
+    return df
+
+
+def insertInclusivePercentileInfoDF(
+    df: "pd.DataFrame",
+    percentilesInclusive: tuple,
+    inclusiveDF: "pd.DataFrame",
+) -> "pd.DataFrame":
+    """Prepend inclusive-percentile columns from inclusiveDF into df."""
+    for idx, p in enumerate(percentilesInclusive):
+        df.insert(idx, p.percentileStr, inclusiveDF[p.percentileStr])
+    for idx, p in enumerate(percentilesInclusive):
+        df.insert(
+            len(percentilesInclusive) + idx,
+            p.percentileWithPercentSign(),
+            inclusiveDF[p.percentileWithPercentSign()],
+        )
+    return df
+
+
+def insertOccurenceCol(
+    df: "pd.DataFrame",
+    jaegerTraceFiles: list,
+    nonZeros: "pd.Series",
+) -> tuple:
+    """Prepend an occurrence-count column (how many traces each op appears on CP)."""
+    occurenceColHeader = "occurence (%s)" % len(jaegerTraceFiles)
+    # Use integer placeholder so pandas StringDtype columns (pandas 3+) do not reject int counts.
+    df.insert(0, occurenceColHeader, [0] * len(df))
+    for row_label in df.index:
+        df.at[row_label, occurenceColHeader] = int(nonZeros.get(row_label, 0))
+    return df, occurenceColHeader
+
+
+def reindexDescending(
+    df: "pd.DataFrame",
+    exclusive: SummaryResult,
+    prefixColumns: list,
+    traceIDIndex: list,
+) -> "pd.DataFrame":
+    """Sort rows by descending total op time and columns by descending trace total time."""
+    opSums = df[traceIDIndex].sum(axis=1).sort_values(ascending=False)
+    df = df.reindex(opSums.index.tolist())
+
+    traceIDSorted = sorted(
+        traceIDIndex,
+        key=lambda x: exclusive.opTime[x].get("totalTime", 0),
+        reverse=True,
+    )
+    return df.reindex(columns=prefixColumns + traceIDSorted)
+
+
+# --- Remaining functions (makeClickable through main) will be added in PRs 13c–13e ---
