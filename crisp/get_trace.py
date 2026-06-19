@@ -485,4 +485,128 @@ def isDiskEnough(threshold: int = 5) -> bool:
     return stat[2] >= threshold * 1024 * 1024 * 1024
 
 
-# traceDownloadWrapper, traceDownloadReal, and main() will be added in PR 12c
+def downloadWrapper(args):
+    traceId, c = args
+    result = download(traceId, c)
+    return result
+
+
+def traceDownloadWrapper(c: common.Config, resultQ: mp.Queue) -> common.Config:
+    return common.templateHandler(
+        message="traceDownload step",
+        realHandler=traceDownloadReal,
+        preStart=None,
+        postFinish=None,
+        c=c,
+        resultQ=resultQ,
+    )
+
+
+def traceDownloadReal(c: common.Config):
+    counter = 0
+    while counter < c.downloadRetry:
+        if not isDiskEnough(c.diskRequirement):
+            counter += 1
+            time.sleep(c.diskFreeWaitTime)
+        else:
+            break
+
+    if counter == c.downloadRetry:
+        logging.warning(
+            f"{c.serviceName}::{c.operationName} download failed due to disk space limit",
+        )
+        logging.warning(f"Free disk: {shutil.disk_usage('.')[2]} bytes")
+        return 1
+
+    logging.info("enough disk")
+
+    # Have enough disk space, create the output directory if it does not exist.
+    os.makedirs(c.output, exist_ok=True)
+
+    funcExecutionStartTime = time.time()
+
+    logging.info(f"Begin trace download for {c.serviceName}::{c.operationName}")
+    metrics = {}
+    if c.ioParallelism == 1:
+        for idx in range(0, len(c.traceIDs), common.DISK_CHECK_FREQUENCY):
+            if diskLimitReached(c.output, c.endpointDiskGBLimit):
+                logging.warning(
+                    f"Disk full for {c.output} during {c.serviceName}::{c.operationName} at {idx}",
+                )
+                break
+            for i in range(
+                idx,
+                min(idx + common.DISK_CHECK_FREQUENCY, len(c.traceIDs)),
+            ):
+                res = download(c.traceIDs[i], c)
+                if res in metrics:
+                    metrics[res] += 1
+                else:
+                    metrics[res] = 1
+    else:
+        with mp.Pool(c.ioParallelism) as p:
+            for idx in range(0, len(c.traceIDs), common.DISK_CHECK_FREQUENCY):
+                if diskLimitReached(c.output, c.endpointDiskGBLimit):
+                    logging.warning(
+                        f"Disk full for {c.output} during {c.serviceName}::{c.operationName} at {idx}",
+                    )
+                    break
+                iterEnd = min(idx + common.DISK_CHECK_FREQUENCY, len(c.traceIDs))
+                wrappedData = [(traceId, c) for traceId in c.traceIDs[idx:iterEnd]]
+                logging.info(f"Downloading {c.serviceName}::{c.operationName} at {idx}")
+
+                # This code sporadically fails with
+                # multiprocessing.pool.MaybeEncodingError: Error sending result:
+                #  '<multiprocessing.pool.ExceptionWithTraceback object at 0x7f4793a73070>'.
+                # Reason: 'TypeError("cannot pickle '_thread.RLock' object")'
+                # This is a known issue with multiprocessing module and we do use any RLock objects explictly.
+                # As a workaround, we catch multiprocessing.pool.MaybeEncodingError and retry the download.
+                for i in range(common.MAX_DOWNLOAD_RETRY):
+                    try:
+                        for result in p.imap(
+                            downloadWrapper,
+                            wrappedData,
+                            chunksize=100,
+                        ):
+                            if result in metrics:
+                                metrics[result] += 1
+                            else:
+                                metrics[result] = 1
+                        break
+                    except mp.pool.MaybeEncodingError as e:
+                        # if we have reached the max retry, we give up and raise the exception
+                        if i == common.MAX_DOWNLOAD_RETRY - 1:
+                            raise
+                        logging.warning(f"Error occurred while downloading traces: {e}")
+                        logging.warning(
+                            f"Retrying download for {c.serviceName}::{c.operationName} at {idx}",
+                        )
+                        continue
+
+    # Log the metrics in sorted order of keys.
+    success = 0
+    for k in sorted(metrics.keys()):
+        logging.info(
+            f"{c.serviceName}::{c.operationName} DownloadStatusCode{k}={metrics[k]}",
+        )
+        if k == HTTPStatus.OK:
+            success += metrics[k]
+
+    logging.info(
+        "%d/%d fetches succeeded for %s::%s"  # noqa: UP031
+        % (success, len(c.traceIDs), c.serviceName, c.operationName),
+    )
+
+    return 0
+
+
+def main():
+    c = initArgs()
+    getTraceIDReal(c)
+    traceDownloadReal(c)
+    return 0
+
+
+if __name__ == "__main__":
+    main()
+

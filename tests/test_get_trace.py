@@ -1,4 +1,5 @@
 import json
+import tempfile
 import unittest
 from http import HTTPStatus
 from unittest import mock
@@ -238,3 +239,80 @@ class get_traceTestCase(unittest.TestCase):
         config.dryRun = True
         trace_ids = get_trace.getTraceIDs(1000, 2000, config)
         self.assertEqual(trace_ids, [])
+
+    @mock.patch("crisp.get_trace.requests.get")
+    @mock.patch("crisp.get_trace.shutil.disk_usage", return_value=(1e15, 2e14, 8e14))
+    def test_traceDownload_success(
+        self,
+        disk_usage_mock,  # noqa: ARG002
+        requests_get_mock,
+    ):
+        trace_ids_response = requests_get_mock.return_value
+        trace_ids_response.json.return_value = GET_TRACE_IDS_SUCCESS_RESPONSE
+        trace_ids_response.status_code = HTTPStatus.OK
+
+        download_traces_response = requests_get_mock.return_value
+        download_traces_response.json.return_value = DOWNLOAD_TRACES_SUCCESS_RESPONSE
+        download_traces_response.status_code = HTTPStatus.OK
+
+        requests_get_mock.side_effect = [trace_ids_response, download_traces_response]
+
+        with tempfile.TemporaryDirectory() as tmpDirName:
+            cfg = common.Config(numTrace=10, output=tmpDirName)
+            cfg.diskFreeWaitTime = 1
+            cfg.traceIDs = ["a", "b", "c"]
+            assert 0 == get_trace.traceDownloadReal(cfg)
+
+    @mock.patch("crisp.get_trace.requests.get")
+    @mock.patch("crisp.get_trace.shutil.disk_usage", return_value=(1e15, 2e14, 8e14))
+    def test_traceDownload_fail(
+        self,
+        disk_usage_mock,  # noqa: ARG002
+        requests_get_mock,
+    ):
+        trace_ids_response = requests_get_mock.return_value
+        trace_ids_response.json.return_value = GET_TRACE_IDS_SUCCESS_RESPONSE
+        trace_ids_response.status_code = HTTPStatus.OK
+
+        download_traces_response = requests_get_mock.return_value
+        download_traces_response.status_code = HTTPStatus.BAD_REQUEST
+
+        requests_get_mock.side_effect = [trace_ids_response, download_traces_response]
+
+        with tempfile.TemporaryDirectory() as tmpDirName:
+            cfg = common.Config(numTrace=10, output=tmpDirName)
+            cfg.diskFreeWaitTime = 1
+            cfg.traceIDs = ["a", "b", "c"]
+            assert 0 == get_trace.traceDownloadReal(cfg)
+
+    @mock.patch("crisp.get_trace.requests.get")
+    @mock.patch(
+        "crisp.get_trace.argparse.ArgumentParser.parse_args",
+    )
+    def test_main(self, parse_args_mock, requests_get_mock):
+        from unittest.mock import MagicMock
+
+        mock_args = MagicMock()
+        mock_args.operationName = ""
+        mock_args.serviceName = ""
+        mock_args.output = "traces"
+        mock_args.numTrace = 1000
+        mock_args.parallelism = 1
+        mock_args.lookbackDays = 1
+        mock_args.ignoreLastNMinutes = 10
+        mock_args.timeoutSec = 60
+        mock_args.useMidnightTime = False
+        mock_args.diskRequirement = 5
+        mock_args.qps = 500
+        mock_args.numShards = 1
+        mock_args.errorAnalysis = False
+        mock_args.startTimestamp = None
+        mock_args.endTimestamp = None
+        mock_args.jaegerQueryUrl = "http://localhost:16686"
+
+        parse_args_mock.return_value = mock_args
+
+        requests_get_mock.return_value.status_code = HTTPStatus.OK
+        requests_get_mock.return_value.json.return_value = GET_TRACE_IDS_SUCCESS_RESPONSE
+
+        assert 0 == get_trace.main()
