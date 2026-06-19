@@ -1,87 +1,22 @@
 # ruff: noqa: I001
 import argparse
 import glob
-import heapq
 import json
 import logging
 import multiprocessing as mp
 import os
 import re
-import time
-import types
+from datetime import datetime
 from functools import partial
-from functools import reduce
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import yaml
 
-from typing import Union
-
 import crisp.common as common
-from crisp.shared.models import CallPathProfile
-from crisp.shared.utils import getLeafNodeFromCallPath
-import crisp.storage as storage
 import crisp.flamegraph as flamegraph
-from crisp.graph import (
-    accumulateInDict,
-    bcolors,
-    Graph,
-)
-from crisp.models import (
-    ErrorCPMetrics,
-    ErrorMetrics,
-    Metrics,
-    QuantizedMetrics,
-    SavingData,
-)
-from crisp.shared.models import LatencyData
-from crisp.constants import PARQUET_STRING_ID
-from crisp.shared.constants import TOTAL_TIME
-
-# import polars as pl  # deferred: parquet support not available in OSS build
-from crisp.cct_utils import (
-    cct_to_dot,
-    parse_cct_file,
-)
-# create_protobuf_response_with_exemplars deferred — requires protobuf stub (PR 14)
-from crisp.metrics.aggregators import MergeCallPathProfilesWithExemplars
-
-# Import CSV generation functions from the new output module for backward compatibility
-from crisp.output.csv_generators import (
-    genSummaryCSVFile,
-    genHypoLatencyCSVFile,
-    genCyclesCSVFile,
-    genCrossRegionCallsCSVFile,
-)
-
-# Import aggregation function from the new metrics module
-from crisp.metrics.aggregators import (
-    MergeCallPathProfilesWithExample,
-)
-# Import percentile calculation functions from the new metrics module
-from crisp.metrics.percentile_calculator import (
-    insertInDF,
-    addPercentileColumns,
-    insertInclusivePercentileInfoDF,
-    genLatencyPercentile,
-)
-
-# Import formatting functions from the new output module for backward compatibility
-from crisp.output.formatters import (
-    makeClickable,
-    addHyperLinkToTrace,
-    renameSortableIcon,
-    insertOccurenceCol,
-    reindexDescending,
-    setCellFormating,
-    JAEGER_UI_URL,
-    SORTABLE_COL_CLASS,
-)
-
-# Backward compatibility aliases for constants
-sortabelColClass = SORTABLE_COL_CLASS
+from crisp.graph import Graph
+from crisp.shared.utils import getLeafNodeFromCallPath
 
 
 logging.basicConfig(
@@ -243,7 +178,7 @@ class YAMLAction(argparse.Action):
 def initArgs():
     argParser = argparse.ArgumentParser()
     argParser.add_argument(
-        "-o",
+        "-a",
         "--operationName",
         action="store",
         help="operation name",
@@ -629,7 +564,7 @@ document.querySelectorAll(".table-sortable th").forEach(headerCell => {
 # ---------------------------------------------------------------------------
 
 def process(filename: str, config: common.Config) -> Any:
-    """Process one Jaeger JSON trace file and return its Metrics."""
+    """Process one Jaeger JSON trace file and return its Metrics, or None to skip."""
     with open(filename, "r") as f:
         data = json.load(f)
 
@@ -642,17 +577,49 @@ def process(filename: str, config: common.Config) -> Any:
     )
 
     if graph.rootNode is None:
-        return Metrics({}, {}, {}, {}, {}, {}, {}, 0, 0, 0)
+        return None
 
     if config.ignoreTestTraces and graph.isTestTrace:
-        return Metrics({}, {}, {}, {}, {}, {}, {}, 0, 0, 0)
+        return None
 
-    res = graph.findCriticalPath()
-    logging.debug("critical path: %s", res)
+    traceID = getTraceIdFromFilePath(filename)
+    criticalPath = graph.findCriticalPath()
+    fullErrCP = graph.findErrorsOnCriticalPath()
+    (
+        totalWork,
+        timeSavedOnWork,
+        timeSavedOnCPPessimistic,
+        timeSavedOnCPOptimistic,
+        timeSavedOnCPAllSeries,
+    ) = graph.computeTimeSaved()
 
-    metrics = graph.getMetrics(res)
-    logging.debug("opTimeExclusive: %s", metrics.opTimeExclusive)
-    logging.debug("checkResults: %s", graph.checkResults(metrics.opTimeExclusive))
+    metrics = graph.getMetrics(
+        traceID,
+        criticalPath,
+        fullErrCP,
+        totalWork,
+        timeSavedOnWork,
+        timeSavedOnCPPessimistic,
+        timeSavedOnCPOptimistic,
+        timeSavedOnCPAllSeries,
+        {},
+    )
+
+    logging.debug("critical path: %s", criticalPath)
+    cpp = metrics.CPMetrics.profile if metrics.CPMetrics else {}
+
+    # Derive flat convenience maps from CPMetrics for downstream aggregation.
+    metrics.opTimeExclusive = {path: mv.excl for path, mv in cpp.items()}
+    metrics.opTimeInclusive = {path: mv.inc for path, mv in cpp.items()}
+    metrics.callpathTimeExlusive = metrics.opTimeExclusive
+    metrics.callpathTimeInclusive = metrics.opTimeInclusive
+    metrics.exclusiveExampleMap = {path: (mv.exclEx, mv.excl) for path, mv in cpp.items()}
+    metrics.inclusiveExampleMap = {path: (mv.incEx, mv.inc) for path, mv in cpp.items()}
+    callChain: dict = {}
+    for path in cpp:
+        op = getLeafNodeFromCallPath(path)
+        callChain.setdefault(op, set()).add(path)
+    metrics.callChain = callChain
 
     # Inject a synthetic totalTime entry so percentile logic has a denominator.
     metrics.opTimeExclusive["totalTime"] = graph.rootNode.duration
@@ -753,6 +720,9 @@ def aggregateMetrics(
 
     for i, traceFile in enumerate(jaegerTraceFiles):
         traceID = getTraceIdFromFilePath(traceFile)
+
+        if metrics[i] is None:
+            continue
 
         exclusive.opTime[traceID] = metrics[i].opTimeExclusive
         inclusive.opTime[traceID] = metrics[i].opTimeInclusive
@@ -1232,28 +1202,39 @@ def main() -> None:
     logging.info("Starting mapReduce over %d trace files", len(jaegerTraceFiles))
     metrics = mapReduce(config.computeParallelism, jaegerTraceFiles, config)
 
-    maxNodes = max((m.numNodes for m in metrics), default=0)
-    totalNodes = sum(m.numNodes for m in metrics)
-    maxDepth = max((m.depth for m in metrics), default=0)
+    valid = [m for m in metrics if m is not None]
+    maxNodes = max((m.numNodes for m in valid), default=0)
+    totalNodes = sum(m.numNodes for m in valid)
+    maxDepth = max((m.depth for m in valid), default=0)
     logging.info(
         "mapReduce complete: maxNodes=%d totalNodes=%d maxDepth=%d",
         maxNodes, totalNodes, maxDepth,
     )
 
     if config.anonymize:
-        sanitizeNames(metrics)
+        sanitizeNames(valid)
 
     logging.info("Starting aggregateMetrics")
     exclusive, inclusive, aggregateCallMap = aggregateMetrics(metrics, jaegerTraceFiles)
 
     traceIDIndex = [os.path.splitext(os.path.basename(f))[0] for f in jaegerTraceFiles]
     traceToRootspanMap = {
-        traceIDIndex[i]: metrics[i].rootSpanID for i in range(len(traceIDIndex))
+        traceIDIndex[i]: metrics[i].rootSpanID
+        for i in range(len(traceIDIndex))
+        if metrics[i] is not None
     }
 
     outputDir = config.outputDir
     logging.info("Starting flameGraph, outputDir=%s", outputDir)
-    flameGraphPctFilePair, _ = flamegraph.flameGraph(metrics, outputDir)
+    flameGraphResult = flamegraph.flameGraph(
+        valid,
+        outputDir,
+        config.serviceName,
+        config.operationName,
+        config.ignoreTestTraces,
+        doRanges=config.doRanges,
+    )
+    flameGraphPctFilePair = flameGraphResult.fgPctFilePair
 
     logging.info("Starting heatmapAndSummary")
     heatMap, summary, criticalPathJSONStr = heatmapAndSummary(
