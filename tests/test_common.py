@@ -143,3 +143,31 @@ class TestConfig(TestCase):
         self.assertEqual(c.traceIDs, [])
         self.assertFalse(c.failed)
         self.assertEqual(c.failedLog, [])
+
+
+class TestServiceOperationToTBPath(TestCase):
+    def test_basic(self):
+        result = common.serviceOperationToTBPath(
+            "my-service", "MyService::doThing", "/output", "2024_01_01"
+        )
+        self.assertEqual(result, "/output/my_service/MyService_doThing/2024_01_01")
+
+    def test_latest_suffix(self):
+        result = common.serviceOperationToTBPath(
+            "my-service", "MyService::doThing", "/output", "latest"
+        )
+        self.assertEqual(result, "/output/my_service/MyService_doThing/latest")
+
+
+class TestGetServiceOperationTags(TestCase):
+    def test_returns_correct_keys(self):
+        c = common.Config(serviceName="my-service", operationName="MyService::doThing")
+        tags = common.getServiceOperationTags(c)
+        self.assertEqual(tags[common.SERVICE_TAG_NAME], "my_service")
+        self.assertEqual(tags[common.OPERATION_TAG_NAME], "MyService_doThing")
+
+    def test_default_config(self):
+        c = common.Config()
+        tags = common.getServiceOperationTags(c)
+        self.assertIn(common.SERVICE_TAG_NAME, tags)
+        self.assertIn(common.OPERATION_TAG_NAME, tags)
