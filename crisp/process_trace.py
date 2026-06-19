@@ -666,6 +666,20 @@ def getTraceIdFromFilePath(traceFile: str) -> str:
     return traceFile.split("/")[-1].split(".")[0]
 
 
+def mergeCallpathTime(
+    callMap: dict,
+    callPathMap: dict,
+    totalBreakdownTime: dict,
+) -> None:
+    """Collect per-call-path times into totalBreakdownTime."""
+    for opName, paths in callMap.items():
+        if opName not in totalBreakdownTime:
+            totalBreakdownTime[opName] = {}
+        for p in paths:
+            if p not in totalBreakdownTime[opName]:
+                totalBreakdownTime[opName][p] = []
+            totalBreakdownTime[opName][p].append(callPathMap[p])
+
 
 def aggregateMetrics(
     metrics: list,
