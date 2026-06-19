@@ -143,3 +143,23 @@ py_library(
         "@pypi//tenacity",
     ],
 )
+
+py_library(
+    name = "process_trace",
+    srcs = ["process_trace.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crisp:common",
+        "//crisp:constants",
+        "//crisp:flamegraph",
+        "//crisp:graph",
+        "//crisp:pkg",
+        "//crisp:storage",
+        "//crisp/metrics:metrics",
+        "//crisp/output:output",
+        "//crisp/shared:shared",
+        "@pypi//numpy",
+        "@pypi//pandas",
+        "@pypi//pyyaml",
+    ],
+)

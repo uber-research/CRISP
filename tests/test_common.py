@@ -127,7 +127,7 @@ class TestConfig(TestCase):
         self.assertFalse(hasattr(c, 'uploadToCrispRiTB'))
         self.assertFalse(hasattr(c, 'uploadTar'))
         self.assertFalse(hasattr(c, 'noOverwriteUpload'))
-        self.assertFalse(hasattr(c, 'ignoreCtfTests'))
+        self.assertTrue(hasattr(c, 'ignoreTestTraces'))  # retained for OSS: flags synthetic test traces
         self.assertFalse(hasattr(c, 'enableM3Metrics'))
         self.assertFalse(hasattr(c, 'jobTag'))
         self.assertFalse(hasattr(c, 'useParquet'))
