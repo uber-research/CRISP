@@ -86,3 +86,8 @@ When porting, apply this decision in order:
 | `tests/test_cct_utils.py::TestCreateProtobufResponse`                  | PR 11             | Requires protobuf stub not yet available.                                                             |
 | `tests/test_cct_utils.py::TestCreateProtobufResponseWithExemplars`     | PR 11             | Requires protobuf stub not yet available.                                                             |
 | `tests/test_cct_utils.py::TestCCTUtilsIntegration`                     | PR 11             | Both test methods call `create_protobuf_response_with_exemplars`; requires protobuf stub.             |
+| `tests/test_storage.py::TestStorageFunctions::test_compressAndUpload`   | post-PR 11        | Requires removed internal infrastructure (`constructPathAndUploadToTerrablob`).                       |
+| `tests/test_storage.py::TestStorageFunctions::test_Upload`              | post-PR 11        | Requires removed internal infrastructure (`constructPathAndUploadToTerrablob`).                       |
+| `tests/test_storage.py::test_uploadReal_with_upload_to_tb`              | post-PR 11        | Requires removed internal infrastructure (`emitDurationMetric`, `uploadToTB` / `uploadTar` flags).   |
+| `tests/test_storage.py::test_uploadReal_without_upload_to_tb`           | post-PR 11        | Requires removed internal infrastructure (`emitDurationMetric`, `uploadToTB` flag).                  |
+| `tests/test_storage.py::TestCrossRegionAnalyticsUpload::*` (×3)         | post-PR 11        | Requires external analytics backend not available in OSS build.                                      |

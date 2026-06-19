@@ -93,3 +93,24 @@ py_library(
     visibility = ["//visibility:public"],
     deps = [],
 )
+
+py_library(
+    name = "tb_client",
+    srcs = ["tb_client.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@pypi//boto3",
+        "@pypi//botocore",
+    ],
+)
+
+py_library(
+    name = "storage",
+    srcs = ["storage.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crisp:common",
+        "//crisp:tb_client",
+        "//crisp/shared:shared",
+    ],
+)

@@ -42,6 +42,10 @@ py_test(
         "//crisp:trace_merger",
         "//crisp:flamegraph",
         "//crisp:cct_utils",
+        "//crisp:tb_client",
+        "//crisp:storage",
+        "@pypi//boto3",
+        "@pypi//botocore",
         "@pypi//pytest",
     ],
     env = {"MPLBACKEND": "Agg"},
@@ -103,6 +107,32 @@ py_test(
     deps = [
         "//crisp:cct_utils",
         "@pypi//pytest",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_tb_client",
+    srcs = ["tests/test_tb_client.py"],
+    deps = [
+        "//crisp:tb_client",
+        "@pypi//boto3",
+        "@pypi//botocore",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_storage",
+    srcs = ["tests/test_storage.py"],
+    deps = [
+        "//crisp:storage",
+        "//crisp:common",
+        "//crisp/shared:shared",
+        "//crisp/utils:utils",
+        "@pypi//boto3",
+        "@pypi//botocore",
+        "@pypi//python_dateutil",
     ],
     imports = ["."],
 )

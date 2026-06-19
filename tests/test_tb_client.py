@@ -1,23 +1,20 @@
 import unittest
-import sys
-import os
 from unittest.mock import patch, MagicMock
 
 from botocore.exceptions import ClientError
 from boto3.s3.transfer import S3Transfer
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from tb_client import TBClient
+from crisp.tb_client import TBClient
+
 
 class TestTBClient(unittest.TestCase):
 
-    @patch('tb_client.boto3.client')
+    @patch('crisp.tb_client.boto3.client')
     def setUp(self, mock_boto_client):  # noqa: ARG002
-        self.client = TBClient(service_name='test', port='12345', bucket_name='test_bucket')
+        self.client = TBClient(service_name='test', bucket_name='test_bucket')
 
     def test_init(self):
         self.assertEqual(self.client.service_name, 'test')
-        self.assertEqual(self.client.port, '12345')
         self.assertEqual(self.client.bucket_name, 'test_bucket')
         self.assertIsInstance(self.client.boto3_client, MagicMock)
 
