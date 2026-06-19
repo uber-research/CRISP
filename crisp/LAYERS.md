@@ -91,3 +91,7 @@ When porting, apply this decision in order:
 | `tests/test_storage.py::test_uploadReal_with_upload_to_tb`              | post-PR 11        | Requires removed internal infrastructure (`emitDurationMetric`, `uploadToTB` / `uploadTar` flags).   |
 | `tests/test_storage.py::test_uploadReal_without_upload_to_tb`           | post-PR 11        | Requires removed internal infrastructure (`emitDurationMetric`, `uploadToTB` flag).                  |
 | `tests/test_storage.py::TestCrossRegionAnalyticsUpload::*` (×3)         | post-PR 11        | Requires external analytics backend not available in OSS build.                                      |
+| `tests/test_get_trace.py::get_traceTestCase::test_traceDownloadParquet_success` | post-PR 12c | `traceDownloadParquet` not ported; uses Uber-internal `tracing` CLI tool and `c.useParquet`.         |
+| `tests/test_get_trace.py::get_traceTestCase::test_traceDownloadParquet_failure` | post-PR 12c | Same as above.                                                                                       |
+| `tests/test_get_trace.py::get_traceTestCase::test_main_useParquet`              | post-PR 12c | `useParquet` branch removed from `main()`; parquet path not ported to OSS.                          |
+| `tests/test_get_trace.py::get_traceTestCase::test_download_usso`                | post-PR 12c | USSO / `terrablobOfflineToken` auth not present in OSS Config.                                      |
