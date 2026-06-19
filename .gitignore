@@ -9,3 +9,4 @@ bazel-*
 *.egg-info/
 build/
 dist/
+docs/
