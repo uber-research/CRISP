@@ -82,15 +82,15 @@ When porting, apply this decision in order:
 | `tests/test_common.py::TestGetTBClient.*` (×3)                        | PR 11             | TBClient not yet ported.                                                                              |
 | `tests/test_common.py::TestDirExistsOnTB.*`                           | PR 11             | TBClient not yet ported.                                                                              |
 | `tests/test_common.py::TestBlobExistsOnTB.*`                          | PR 11             | TBClient not yet ported.                                                                              |
-| `tests/test_graph.py::GraphTestCase::test_findCriticalPath`            | PR 9c             | `findCriticalPath` not yet ported.                                                                    |
-| `tests/test_graph.py::GraphTestCase::test_findErrorsOnCriticalPath`    | PR 9c             | `findErrorsOnCriticalPath` not yet ported.                                                            |
-| `tests/test_graph.py::GraphTestCase::test_computeTimeSaved`            | PR 9c             | `computeTimeSaved` not yet ported.                                                                    |
-| `tests/test_graph.py::GraphTestCase::test_rootReturnError`             | PR 9c             | `findErrorsOnCriticalPath` not yet ported.                                                            |
-| `tests/test_graph.py::GraphTestCase::test_metrics1`                    | PR 9c             | `findCriticalPath`, `accumeCPMetrics`, `accumeErrorCPMetrics` not yet ported.                        |
-| `tests/test_graph.py::GraphTestCase::test_metrics2`                    | PR 9c             | Same as above.                                                                                        |
-| `tests/test_graph.py::GraphTestCase::test_timeskewMetrics`             | PR 9c             | Same as above.                                                                                        |
-| `tests/test_graph.py::GraphTestCase::test_overlapedSerialCalls`        | PR 9c             | `findCriticalPath`, `accumeCPMetrics` not yet ported.                                                 |
-| `tests/test_graph.py::GraphTestCase::test_exclusion`                   | PR 9c             | `findCriticalPath` not yet ported.                                                                    |
+| `tests/test_graph.py::GraphTestCase::test_findCriticalPath`            | PR 9d             | `findCriticalPath` not yet ported.                                                                    |
+| `tests/test_graph.py::GraphTestCase::test_findErrorsOnCriticalPath`    | PR 9d             | `findErrorsOnCriticalPath` not yet ported.                                                            |
+| `tests/test_graph.py::GraphTestCase::test_computeTimeSaved`            | PR 9d             | `computeTimeSaved` not yet ported.                                                                    |
+| `tests/test_graph.py::GraphTestCase::test_rootReturnError`             | PR 9d             | `findErrorsOnCriticalPath` not yet ported.                                                            |
+| `tests/test_graph.py::GraphTestCase::test_metrics1`                    | PR 9d             | `findCriticalPath`, `accumeCPMetrics`, `accumeErrorCPMetrics` not yet ported.                        |
+| `tests/test_graph.py::GraphTestCase::test_metrics2`                    | PR 9d             | Same as above.                                                                                        |
+| `tests/test_graph.py::GraphTestCase::test_timeskewMetrics`             | PR 9d             | Same as above.                                                                                        |
+| `tests/test_graph.py::GraphTestCase::test_overlapedSerialCalls`        | PR 9d             | `findCriticalPath`, `accumeCPMetrics` not yet ported.                                                 |
+| `tests/test_graph.py::GraphTestCase::test_exclusion`                   | PR 9d             | `findCriticalPath` not yet ported.                                                                    |
 | `tests/test_graph.py::GraphTestCase::test_computeErrDepthHisto`        | PR 9d             | `computeErrDepthHisto`, `computeSupressErrDepthHisto` not yet ported.                                 |
 | `tests/test_graph.py::GraphTestCase::test_getOutboundCount_*` (×5)     | PR 9d             | `getOutboundCount` not yet ported.                                                                    |
 | `tests/test_graph.py::GraphTestCase::test_getAllOutboundCounts`         | PR 9d             | `getAllOutboundCounts` not yet ported.                                                                 |
