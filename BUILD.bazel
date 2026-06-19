@@ -44,6 +44,7 @@ py_test(
         "//crisp:cct_utils",
         "//crisp:tb_client",
         "//crisp:storage",
+        "//crisp:pipeline",
         "@pypi//boto3",
         "@pypi//botocore",
         "@pypi//pytest",
@@ -133,6 +134,16 @@ py_test(
         "@pypi//boto3",
         "@pypi//botocore",
         "@pypi//python_dateutil",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_pipeline",
+    srcs = ["tests/test_pipeline.py"],
+    deps = [
+        "//crisp:pipeline",
+        "//crisp:common",
     ],
     imports = ["."],
 )
