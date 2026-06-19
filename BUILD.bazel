@@ -144,6 +144,16 @@ py_test(
     imports = ["."],
 )
 
+py_test(
+    name = "test_models",
+    srcs = ["tests/test_models.py"],
+    deps = [
+        "//crisp:pkg",
+        "//crisp/shared:shared",
+    ],
+    imports = ["."],
+)
+
 # ---------------------------------------------------------------------------
 # crisp/utils tests
 # ---------------------------------------------------------------------------
