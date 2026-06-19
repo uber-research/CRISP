@@ -436,6 +436,17 @@ def initArgs():
         help="Base URL for the Jaeger query API.",
         type=str,
     )
+    argParser.add_argument(
+        "-o",
+        "--outputDir",
+        dest="outputDir",
+        action="store",
+        default=None,
+        required=False,
+        help="Directory where output files (HTML report, flame graphs) will be written."
+             " Defaults to inputDir.",
+        type=str,
+    )
 
     args = argParser.parse_args()
 
@@ -496,6 +507,7 @@ def initArgs():
         jaegerQueryUrl=args.jaegerQueryUrl,
     )
     c.jaegerTraceFiles = jaegerTraceFiles
+    c.outputDir = args.outputDir if args.outputDir else tracesDir
     return c
 
 
@@ -903,4 +915,369 @@ def reindexDescending(
     return df.reindex(columns=prefixColumns + traceIDSorted)
 
 
-# --- Remaining functions (makeClickable through main) will be added in PRs 13c–13e ---
+# ---------------------------------------------------------------------------
+# Display helpers
+# ---------------------------------------------------------------------------
+
+def makeClickable(url: str, name: str) -> str:
+    return '<a href="{}" rel="noopener noreferrer" target="_blank">{}</a>'.format(url, name)
+
+
+def addHyperLinkToTrace(
+    df: "pd.DataFrame",
+    tracespanIDmap: dict,
+    jaegerQueryUrl: str,
+) -> "pd.DataFrame":
+    """Rename each trace-ID column header to a Jaeger UI hyperlink."""
+    hyperLinkHT = {}
+    for k, v in tracespanIDmap.items():
+        hyperLinkHT[k] = makeClickable(
+            "{}/trace/{}?uiFind={}".format(jaegerQueryUrl, k, v), "#"
+        )
+    df.rename(columns=hyperLinkHT, inplace=True)
+    return df
+
+
+def renameSortableIcon(df: "pd.DataFrame", columns: list) -> "pd.DataFrame":
+    """Append a FontAwesome sort icon to each sortable column header."""
+    sortableRenameHT = {col: col + ' <i class="fas fa-sort"></i>' for col in columns}
+    df.rename(columns=sortableRenameHT, inplace=True)
+    return df
+
+
+def setCellFormating(
+    df: "pd.DataFrame",
+    percentiles: tuple,
+    occurenceColHeader: str,
+) -> dict:
+    """Return a format dict: scientific for values, % for percentages, int for occurrence."""
+    precisionHT = {col: "{:.2e}" for col in df.columns.values}
+    for p in percentiles:
+        precisionHT[p.percentileWithPercentSign()] = "{:.2%}"
+    precisionHT[occurenceColHeader] = "{:5d}"
+    return precisionHT
+
+
+def cssNameHandle(call_chain: str) -> str:
+    """Format a call chain string (A->B->C) as indented HTML lines."""
+    lst = call_chain.split("->")
+    res = ""
+    for i in range(len(lst)):
+        for _ in range(i):
+            res += " &emsp; "
+        res += lst[i] + "</br>  "
+    return res
+
+
+def getSummaryText(
+    pval: str,
+    pctMap: dict,
+    valMap: dict,
+    totalBreakdownTime: dict,
+    topN: int,
+    serviceName: str,
+    operationName: str,
+) -> str:
+    """Build an HTML summary listing top-N operations contributing most to pval."""
+    summary = "<h1>Top %d operations contributing to %s of [%s] %s:</h1>" % (
+        topN, pval, serviceName, operationName
+    )
+    res = sorted(pctMap.items(), key=lambda x: x[1], reverse=True)
+    res = [item for item in res if item[0] != "totalTime"]
+    for idx in range(min(topN, len(res))):
+        summary += (
+            "<h2>%s. %s -> %s Value: %s, %s percentage: %s, call chains are below:</h2>"
+            % (
+                idx + 1,
+                res[idx][0],
+                pval,
+                "{:.2e}".format(valMap[res[idx][0]]),
+                pval,
+                "{:.2%}".format(pctMap[res[idx][0]]),
+            )
+        )
+        cc = totalBreakdownTime[res[idx][0]]
+        sumCC = sum(t for _, times in cc.items() for t in times)
+        sortedCC = sorted(cc.items(), key=lambda x: sum(x[1]), reverse=True)
+        for chain, times in sortedCC:
+            summary += cssNameHandle(
+                chain + "</br>" + "Contributing: {:.2%}".format(
+                    sum(times) / sumCC if sumCC != 0 else 1.0
+                )
+            )
+            summary += "</br>"
+    return summary
+
+
+def getTopNCCTs(
+    sortedContexts: list,
+    sumTime: float,
+    n: int,
+    exampleMap: dict,
+    jaegerQueryUrl: str,
+) -> str:
+    """Return HTML for the top-N calling contexts with Jaeger example links."""
+    res = ""
+    for i in range(min(len(sortedContexts), n)):
+        chain, times = sortedContexts[i]
+        traceID, spanID, _ = exampleMap[chain]
+        res += (
+            cssNameHandle(
+                chain + "</br>" + "Contributing: {:.2%}".format(
+                    sum(times) / sumTime if sumTime != 0 else 0
+                )
+            )
+            + makeClickable(
+                "{}/trace/{}?uiFind={}".format(jaegerQueryUrl, traceID, spanID),
+                "Example",
+            )
+            + "</br></br>"
+        )
+    return res
+
+
+def sum2DCCT(cct: list) -> float:
+    """Sum all time values across a list of (chain, [times]) pairs."""
+    return sum(t for _, times in cct for t in times)
+
+
+def addToolTip(
+    df: "pd.DataFrame",
+    exclusive: SummaryResult,
+    inclusive: SummaryResult,
+    ignoreSet: set,
+    jaegerQueryUrl: str,
+) -> "pd.DataFrame":
+    """Replace each row-header (operation) with a tooltip showing top call chains."""
+    renameRowHT = {}
+    for i, idx in enumerate(df.index[:]):
+        if idx in ignoreSet:
+            continue
+        cc = exclusive.callpathTime[idx]
+        sortedCC = sorted(cc.items(), key=lambda x: sum(x[1]), reverse=True)
+        ccInc = inclusive.callpathTime[idx]
+        sortedCCInc = sorted(ccInc.items(), key=lambda x: sum(x[1]), reverse=True)
+        sumCC = sum2DCCT(sortedCC)
+        sumCCInc = sum2DCCT(sortedCCInc)
+
+        res = "Exclusive:</br>"
+        res += getTopNCCTs(sortedCC, sumCC, 5, exclusive.exampleMap, jaegerQueryUrl)
+        res += "Inclusive:</br>"
+        res += getTopNCCTs(sortedCCInc, sumCCInc, 5, inclusive.exampleMap, jaegerQueryUrl)
+        renameRowHT[df.index[i]] = (
+            '<div class="tooltip">%s '
+            '<span class="tooltiptext">%s</span> </div>' % (df.index[i], res)
+        )
+    df.rename(index=renameRowHT, inplace=True)
+    return df
+
+
+def getGradientFormatFromDataframe(
+    df: "pd.DataFrame",
+    precisionHT: dict,
+    firstSortableColumn: int,
+    lastSortableColumns: int,
+) -> str:
+    """Apply a purple gradient background to the numeric cells and return HTML."""
+    return (
+        df.style.background_gradient(
+            axis=0,
+            cmap="BuPu",
+            subset=(
+                df.index.values[firstSortableColumn:],
+                df.columns.values[lastSortableColumns:],
+            ),
+        )
+        .set_table_attributes('class="table-sortable"')
+        .set_properties(**{"text-align": "right"})
+        .format(precisionHT)
+        .to_html()
+    )
+
+
+def heatmapAndSummary(
+    exclusive: SummaryResult,
+    inclusive: SummaryResult,
+    aggregateCallMap: dict,
+    traceIDIndex: list,
+    traceToRootspanMap: dict,
+    config: common.Config,
+    jaegerTraceFiles: list,
+) -> tuple:
+    """
+    Build the heatmap HTML table, textual summary, and JSON critical-path export.
+
+    Returns:
+        (heatmap_html, summary_html, criticalPathJSONStr)
+    """
+    allOps = list(aggregateCallMap.keys()) + ["totalTime"]
+    opsStableOrder = sorted(allOps)
+    traceIDsStableOrder = sorted(traceIDIndex)
+
+    exclusiveDF = insertInDF(exclusive, opsStableOrder, traceIDsStableOrder)
+    inclusiveDF = insertInDF(inclusive, opsStableOrder, traceIDsStableOrder)
+
+    nonZeroOpCounts = exclusiveDF.astype(bool).sum(axis=0)
+
+    percentilesExclusive = (PVal(0.5, "P50(E)"), PVal(0.95, "P95(E)"), PVal(0.99, "P99(E)"))
+    exclusiveDF = addPercentileColumns(exclusiveDF, percentilesExclusive)
+
+    percentilesInclusive = (PVal(0.5, "P50(I)"), PVal(0.95, "P95(I)"), PVal(0.99, "P99(I)"))
+    inclusiveDF = addPercentileColumns(inclusiveDF, percentilesInclusive)
+
+    df = insertInclusivePercentileInfoDF(exclusiveDF, percentilesInclusive, inclusiveDF)
+    df, occurenceColHeader = insertOccurenceCol(df, jaegerTraceFiles, nonZeroOpCounts)
+
+    numColsToRetain = 1 + 2 * (len(percentilesExclusive) + len(percentilesInclusive))
+    unmodifiedPrefix = df.columns.values.tolist()[:numColsToRetain]
+
+    df = reindexDescending(df, exclusive, unmodifiedPrefix, traceIDIndex)
+
+    # Truncate to configured limits.
+    df = df.iloc[: config.numOperation, : numColsToRetain + config.numHMTrace]
+
+    criticalPathJSONStr = df.to_json()
+
+    df = addHyperLinkToTrace(df, traceToRootspanMap, config.jaegerQueryUrl)
+    df = renameSortableIcon(
+        df,
+        [x.percentileStr for x in percentilesInclusive + percentilesExclusive],
+    )
+    precisionHT = setCellFormating(
+        df, percentilesExclusive + percentilesInclusive, occurenceColHeader
+    )
+    df = addToolTip(df, exclusive, inclusive, ignoreSet={"totalTime"}, jaegerQueryUrl=config.jaegerQueryUrl)
+
+    firstSortableColumn = 1
+    lastSortableColumns = firstSortableColumn + 2 * (
+        len(percentilesExclusive) + len(percentilesInclusive)
+    )
+
+    summary = ""
+    for p in percentilesExclusive:
+        summary += getSummaryText(
+            p.percentileStr,
+            p.pPct,
+            p.pVal,
+            exclusive.callpathTime,
+            config.topN,
+            config.serviceName,
+            config.operationName,
+        )
+
+    heatmap = getGradientFormatFromDataframe(
+        df, precisionHT, firstSortableColumn, numColsToRetain
+    )
+    return heatmap, summary, criticalPathJSONStr
+
+
+# ---------------------------------------------------------------------------
+# Anonymization helpers
+# ---------------------------------------------------------------------------
+
+# Module-level anonymization state (reset each process run via sanitizeNames).
+_saniMap: dict = {"totalTime": "totalTime"}
+_saniCtr: int = 0
+
+
+def replaceNonAlphaNumericWithUnderscore(s: str) -> str:
+    return re.sub("[^a-zA-Z0-9_]+", "_", s)
+
+
+def sanitized(op: str) -> str:
+    """Map each service::operation token to a generic 'ServiceN::OperationN' label."""
+    global _saniCtr, _saniMap
+    ret = ""
+    for piece in op.split("->"):
+        if ret:
+            ret += "->"
+        if piece in _saniMap:
+            ret += _saniMap[piece]
+        else:
+            _saniCtr += 1
+            label = "Service::Operation" + str(_saniCtr)
+            _saniMap[piece] = label
+            ret += label
+    return ret
+
+
+def sanitizeNames(metrics: list) -> None:
+    """Anonymize all service/operation names in-place across a list of Metrics."""
+    for r in metrics:
+        for field in [
+            r.opTimeExclusive,
+            r.callpathTimeExlusive,
+            r.exclusiveExampleMap,
+            r.opTimeInclusive,
+            r.callpathTimeInclusive,
+            r.inclusiveExampleMap,
+        ]:
+            for k, v in list(field.items()):
+                del field[k]
+                field[sanitized(k)] = v
+        for k, vals in list(r.callChain.items()):
+            del r.callChain[k]
+            sk = sanitized(k)
+            r.callChain[sk] = {sanitized(v) for v in vals}
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    config = initArgs()
+    jaegerTraceFiles = config.jaegerTraceFiles
+
+    logging.info("Starting mapReduce over %d trace files", len(jaegerTraceFiles))
+    metrics = mapReduce(config.computeParallelism, jaegerTraceFiles, config)
+
+    maxNodes = max((m.numNodes for m in metrics), default=0)
+    totalNodes = sum(m.numNodes for m in metrics)
+    maxDepth = max((m.depth for m in metrics), default=0)
+    logging.info(
+        "mapReduce complete: maxNodes=%d totalNodes=%d maxDepth=%d",
+        maxNodes, totalNodes, maxDepth,
+    )
+
+    if config.anonymize:
+        sanitizeNames(metrics)
+
+    logging.info("Starting aggregateMetrics")
+    exclusive, inclusive, aggregateCallMap = aggregateMetrics(metrics, jaegerTraceFiles)
+
+    traceIDIndex = [os.path.splitext(os.path.basename(f))[0] for f in jaegerTraceFiles]
+    traceToRootspanMap = {
+        traceIDIndex[i]: metrics[i].rootSpanID for i in range(len(traceIDIndex))
+    }
+
+    outputDir = config.outputDir
+    logging.info("Starting flameGraph, outputDir=%s", outputDir)
+    flameGraphPctFilePair, _ = flamegraph.flameGraph(metrics, outputDir)
+
+    logging.info("Starting heatmapAndSummary")
+    heatMap, summary, criticalPathJSONStr = heatmapAndSummary(
+        exclusive, inclusive, aggregateCallMap, traceIDIndex,
+        traceToRootspanMap, config, jaegerTraceFiles,
+    )
+
+    criticalPathHTMLFile = os.path.join(outputDir, "criticalPaths.html")
+    logging.info(
+        "[%s] %s critical path file: %s",
+        config.serviceName, config.operationName, criticalPathHTMLFile,
+    )
+
+    with open(criticalPathHTMLFile, "w") as f:
+        f.write(HTML_PREFIX + heatMap)
+        f.write(HTML_GENERATION_TIME)
+        for pval, file in flameGraphPctFilePair:
+            src = os.path.basename(file)
+            f.write(
+                "<div> <h2>%s flame graph. </h2> <img src=%s></div>" % (pval, src)
+            )
+        f.write(summary)
+        f.write(HTML_SUFFIX)
+
+
+if __name__ == "__main__":
+    main()
