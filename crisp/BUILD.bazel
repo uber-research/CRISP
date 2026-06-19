@@ -114,3 +114,12 @@ py_library(
         "//crisp/shared:shared",
     ],
 )
+
+py_library(
+    name = "pipeline",
+    srcs = ["pipeline.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crisp:common",
+    ],
+)
