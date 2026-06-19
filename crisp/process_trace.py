@@ -10,6 +10,7 @@ from datetime import datetime
 from functools import partial
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -17,7 +18,10 @@ import crisp.common as common
 import crisp.flamegraph as flamegraph
 from crisp.graph import Graph
 from crisp.metrics.aggregators import mergeCallChains, mergeExampleID
+from crisp.metrics.percentile_calculator import genLatencyPercentile
 from crisp.output.formatters import makeClickable, renameSortableIcon
+from crisp.shared.constants import JAEGER_UI_URL
+from crisp.shared.models import LatencyData
 from crisp.shared.utils import getLeafNodeFromCallPath
 
 
@@ -1150,6 +1154,352 @@ def sanitizeNames(metrics: list) -> None:
             del r.callChain[k]
             sk = sanitized(k)
             r.callChain[sk] = {sanitized(v) for v in vals}
+
+
+# ---------------------------------------------------------------------------
+# HTML / JSON output
+# ---------------------------------------------------------------------------
+
+def genCriticalPathFiles(
+    flameGraphPctFilePair,
+    errCPFlameGraphPctFilePair,
+    criticalPathJSONStr,
+    tailLatencyPercentile,
+    numDiscardedDueToRootError,
+    numDiscardedTestTraces,
+    heatMap,
+    summary,
+    c: common.Config,
+):
+    """Write criticalPaths.html and crisp.json to the output directory."""
+    outputDir = c.getOutputDir()
+    criticalPathHTMLFile = os.path.join(outputDir, "criticalPaths.html")
+    logging.info(
+        "[%s]%s critical path file %s",
+        c.serviceName,
+        c.operationName,
+        criticalPathHTMLFile,
+    )
+
+    with open(criticalPathHTMLFile, "w") as f:
+        f.write(HTML_PREFIX + heatMap)
+        f.write(HTML_GENERATION_TIME)
+        for pval, file in flameGraphPctFilePair:
+            src = os.path.basename(file)
+            f.write(f"<div> <h2>{pval} flame graph. </h2> <img src={src}></div>")
+        f.write(summary)
+        f.write(HTML_SUFFIX)
+
+        for pval, file in errCPFlameGraphPctFilePair:
+            src = os.path.basename(file)
+            f.write(f"<div> <h2>{pval} error flame graph. </h2> <img src={src}></div>")
+
+        f.write("<div> <h3>")
+        for pval, sampleCount, latencyData in tailLatencyPercentile:
+            latency = round(latencyData.latency, 2)
+            hypo = round(latencyData.hypoLatency, 2)
+            if latency == 0.0:
+                continue
+            reduction = round((1 - (hypo / latency)) * 100, 2)
+            f.write(
+                "Top %s&#37 latency (based on %d traces) will be reduced by %.2f&#37 (%.2f => %.2f) after error removal<br/>"  # noqa: UP031
+                % (pval, sampleCount, reduction, latency, hypo),
+            )
+        f.write("</h3></div>")
+
+        f.write("<div> <h3>")
+        f.write(
+            "Number of traces discarded due to root errors: %d"  # noqa: UP031
+            % (numDiscardedDueToRootError),
+        )
+        f.write("<br/>")
+        f.write("Number of test traces discarded: %d" % (numDiscardedTestTraces))  # noqa: UP031
+        f.write("</h3></div>")
+
+    jsonPath = os.path.join(outputDir, "crisp.json")
+    with open(jsonPath, "w") as f:
+        f.write(criticalPathJSONStr)
+
+    return criticalPathHTMLFile, jsonPath
+
+
+# ---------------------------------------------------------------------------
+# Latency / time-saved summary
+# ---------------------------------------------------------------------------
+
+def genTimeSavedSummary(metrics, c: common.Config):
+    """Compute head/tail/hypo latency percentile summaries, filtering test/root-error traces.
+
+    Returns:
+        (pointLantencyPercentileObj, headLatencyPercentile,
+         tailLatencyPercentile, hypoLatencyPercentile)
+    Each element is a list of (percentile, num_traces, LatencyData) tuples.
+    """
+    latencyHypo = []
+    percentiles = [1, 5, 10, 50, 90, 95, 99, 100]
+
+    for m in metrics:
+        if m.rootReturnError or (m.isTestTrace and c.ignoreTestTraces):
+            continue
+        latency = m.latency
+        hypoLatency = latency - m.timeSavedOnCPAllSeries
+        hypoLatencyPessimistic = latency - m.timeSavedOnCPPessimistic
+        hypoLatencyOptimistic = latency - m.timeSavedOnCPOptimistic
+        assert hypoLatency >= 0
+        latencyHypo.append(
+            LatencyData(
+                m.traceID,
+                latency,
+                hypoLatency,
+                hypoLatencyOptimistic,
+                hypoLatencyPessimistic,
+            ),
+        )
+
+    headLatencyPercentile = genLatencyPercentile(
+        latencyHypo, percentiles[3:], lambda x: x.latency, tailLatency=False,
+    )
+    tailLatencyPercentile = genLatencyPercentile(
+        latencyHypo, percentiles, lambda x: x.latency, tailLatency=True,
+    )
+    hypoLatencyPercentile = genLatencyPercentile(
+        latencyHypo, percentiles[3:], lambda x: x.hypoLatency, tailLatency=False,
+    )
+
+    pointLatencyVal = [x.latency for x in latencyHypo]
+    pointLantencyPercentile = (
+        np.percentile(pointLatencyVal, percentiles) if len(pointLatencyVal) > 0 else []
+    )
+    pointLantencyPercentileObj = [
+        (p, len(latencyHypo), LatencyData("", x, 0, 0, 0))
+        for p, x in zip(percentiles, pointLantencyPercentile)
+    ]
+
+    return (
+        pointLantencyPercentileObj,
+        headLatencyPercentile,
+        tailLatencyPercentile,
+        hypoLatencyPercentile,
+    )
+
+
+def computeSumPercent(df, numeratorCol, denominatorCol):
+    """Return sum(numerator) / sum(denominator), or np.nan if denominator is 0."""
+    denominator = df[denominatorCol].sum()
+    if denominator == 0:
+        return np.nan
+    return df[numeratorCol].sum() / denominator
+
+
+def computeAveRow(df, traceTag):
+    """Build a summary row with averages and weighted-sum percentages for a subset DataFrame."""
+    aveRow = df.mean(numeric_only=True)
+    aveRow[common.TRACE_COL] = traceTag
+    aveRow[common.TRACE_TYPE_COL] = "AVERAGE_MIN_MAX"
+    aveRow[common.PERCENT_WORK_SAVED_COL] = computeSumPercent(
+        df, common.WORK_SAVED_COL, common.WORK_COL,
+    )
+    aveRow[common.PERCENT_LATENCY_SAVED_COL] = computeSumPercent(
+        df, common.TIME_SAVED_ON_CP_COL, common.LATENCY_COL,
+    )
+    aveRow[common.PERCENT_CP_ERRORS_COL] = computeSumPercent(
+        df, common.NUM_CP_ERRORS_COL, common.NUM_ERRORS_COL,
+    )
+    aveRow[common.PERCENT_CONNECTED_TO_CP_ERRORS_COL] = computeSumPercent(
+        df, common.NUM_CONNECTED_TO_CP_ERRORS_COL, common.NUM_ERRORS_COL,
+    )
+    return aveRow
+
+
+# ---------------------------------------------------------------------------
+# Per-trace CSV
+# ---------------------------------------------------------------------------
+
+def _emitNonTransitiveData(traceStatsDf, config):
+    """No-op stub — internal metric emission is not available in the OSS build."""
+
+
+def genTraceCSVFile(metrics, c: common.Config):
+    """Write traceStats.csv and return error-percentage lists for downstream callers.
+
+    Returns:
+        (traceStatsCSV, numDiscardedDueToRootError, numDiscardedTestTraces,
+         percCPErrList, percConnectedToCPErrList)
+    """
+    outputDir = c.getOutputDir()
+    traceStatsCSV = os.path.join(outputDir, common.TRACE_STATS_CSV)
+    logging.info(
+        "[%s]%s trace info file %s",
+        c.serviceName,
+        c.operationName,
+        traceStatsCSV,
+    )
+    headerList = [
+        common.TRACE_COL,
+        common.TRACE_TYPE_COL,
+        common.WORK_COL,
+        common.WORK_SAVED_COL,
+        common.PERCENT_WORK_SAVED_COL,
+        common.LATENCY_COL,
+        common.TIME_SAVED_ON_CP_COL,
+        common.PERCENT_LATENCY_SAVED_COL,
+        common.NUM_ERRORS_COL,
+        common.NUM_CP_ERRORS_COL,
+        common.PERCENT_CP_ERRORS_COL,
+        common.NUM_CONNECTED_TO_CP_ERRORS_COL,
+        common.PERCENT_CONNECTED_TO_CP_ERRORS_COL,
+        common.NUM_NODES_ON_CP_COL,
+        common.NUM_NODES_COL,
+        common.MAX_DEPTH_COL,
+        common.NUM_SELF_ERRORS_COL,
+        common.MAX_ERR_DEPTH_PROP_TO_ROOT_COL,
+        common.MIN_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.MAX_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.P50_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.P90_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.P95_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.P99_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.MIN_PERCENT_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.MAX_PERCENT_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.P50_PERCENT_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.P90_PERCENT_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.P95_PERCENT_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+        common.P99_PERCENT_DEPTH_NON_ROOT_SELF_ERRORS_COL,
+    ]
+    numDiscardedDueToRootError = 0
+    numDiscardedTestTraces = 0
+
+    metricsSorted = sorted(
+        metrics,
+        key=lambda x: (x.timeSavedOnCPAllSeries / x.latency) if x.latency != 0 else 0,
+        reverse=True,
+    )
+
+    rowList = []
+    for m in metricsSorted:
+        traceID = m.traceID
+        totalWork = m.totalWork
+        if totalWork == 0:
+            continue
+        timeSavedOnWork = m.timeSavedOnWork
+        workSavedPct = timeSavedOnWork / totalWork
+        latency = m.latency
+        timeSavedOnCP = m.timeSavedOnCPAllSeries
+        CPSavedPct = timeSavedOnCP / latency
+        traceLink = '=HYPERLINK("' + JAEGER_UI_URL + traceID + '", "' + traceID + '")'
+
+        numAllErrors = m.errMetrics.numAllErrors
+        numCPErrors = m.errCPMetrics.numCPErrors
+        numRelatedToCPErrors = m.errCPMetrics.numRelatedToCPErrors
+        if numAllErrors > 0:
+            percentCPErrors = numCPErrors / numAllErrors
+            percentConnectedToCPErrors = numRelatedToCPErrors / numAllErrors
+        else:
+            percentCPErrors = np.nan
+            percentConnectedToCPErrors = np.nan
+
+        if m.isTestTrace and c.ignoreTestTraces:
+            traceType = "TEST_TRACE"
+            numDiscardedTestTraces += 1
+        elif m.rootReturnError:
+            traceType = "ROOT_ERROR"
+            numDiscardedDueToRootError += 1
+        else:
+            traceType = "NON_ROOT_ERROR"
+
+        depthList = m.errMetrics.selfErrDepthList
+        if traceType == "ROOT_ERROR":
+            depthList = depthList[1:]
+        if len(depthList) > 0:
+            minV = np.percentile(depthList, 0)
+            medianV = np.percentile(depthList, 50)
+            p90V = np.percentile(depthList, 90)
+            p95V = np.percentile(depthList, 95)
+            p99V = np.percentile(depthList, 99)
+            maxV = np.percentile(depthList, 100)
+            percMinV = minV / m.depth
+            percMedianV = medianV / m.depth
+            percP90V = p90V / m.depth
+            percP95V = p95V / m.depth
+            percP99V = p99V / m.depth
+            percMaxV = maxV / m.depth
+        else:
+            minV = medianV = p90V = p95V = p99V = maxV = np.nan
+            percMinV = percMedianV = percP90V = percP95V = percP99V = percMaxV = np.nan
+
+        maxErrDepthPropToRoot = m.errMetrics.maxErrDepthPropToRoot
+        if maxErrDepthPropToRoot == -1:
+            maxErrDepthPropToRoot = np.nan
+
+        row = [
+            traceLink,
+            traceType,
+            totalWork,
+            timeSavedOnWork,
+            workSavedPct,
+            latency,
+            timeSavedOnCP,
+            CPSavedPct,
+            numAllErrors,
+            numCPErrors,
+            percentCPErrors,
+            numRelatedToCPErrors,
+            percentConnectedToCPErrors,
+            m.numNodesOnCP,
+            m.numNodes,
+            m.depth,
+            len(depthList),
+            maxErrDepthPropToRoot,
+            minV,
+            maxV,
+            medianV,
+            p90V,
+            p95V,
+            p99V,
+            percMinV,
+            percMaxV,
+            percMedianV,
+            percP90V,
+            percP95V,
+            percP99V,
+        ]
+        rowList.append(row)
+
+    df = pd.DataFrame(rowList, columns=headerList)
+    percCPErrList = percConnectedToCPErrList = []
+    nonTestDf = df.loc[df[common.TRACE_TYPE_COL] != "TEST_TRACE"]
+    rootErrDf = df.loc[df[common.TRACE_TYPE_COL] == "ROOT_ERROR"]
+    nonRootErrDf = df.loc[df[common.TRACE_TYPE_COL] == "NON_ROOT_ERROR"]
+
+    _emitNonTransitiveData(traceStatsDf=df, config=c)
+
+    if len(rootErrDf.index) > 0:
+        rootErrAveRow = computeAveRow(rootErrDf, common.ROOT_ERROR_TRACES_STATS_TAG)
+        df.loc[len(df)] = rootErrAveRow
+
+    if len(nonRootErrDf.index) > 0:
+        nonTestAveRow = computeAveRow(nonTestDf, common.NON_TEST_TRACES_STATS_TAG)
+        nonRootErrAveRow = computeAveRow(
+            nonRootErrDf, common.NON_ROOT_ERROR_TRACES_STATS_TAG,
+        )
+
+        percCPErrCol = nonRootErrDf[common.PERCENT_CP_ERRORS_COL]
+        percCPErrList = percCPErrCol[pd.notna(percCPErrCol)].tolist()
+        percConnectedToCPErrCol = nonRootErrDf[common.PERCENT_CONNECTED_TO_CP_ERRORS_COL]
+        percConnectedToCPErrList = percConnectedToCPErrCol[pd.notna(percCPErrCol)].tolist()
+
+        df.loc[len(df)] = nonTestAveRow
+        df.loc[len(df)] = nonRootErrAveRow
+
+    df.to_csv(traceStatsCSV, index=False)
+
+    return (
+        traceStatsCSV,
+        numDiscardedDueToRootError,
+        numDiscardedTestTraces,
+        percCPErrList,
+        percConnectedToCPErrList,
+    )
 
 
 # ---------------------------------------------------------------------------
