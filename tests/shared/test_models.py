@@ -352,7 +352,7 @@ class TestMetrics(TestCase):
             numNodesOnCP=3,
             rootReturnError=False,
             propToRootErrCCT={},
-            isCtfTest=False,
+            isTestTrace=False,
             numProxyRoots=0,
             tags=[],
             cycles=0,
@@ -376,7 +376,7 @@ class TestMetrics(TestCase):
         self.assertEqual(m.depth, 4)
         self.assertEqual(m.numNodesOnCP, 3)
         self.assertFalse(m.rootReturnError)
-        self.assertFalse(m.isCtfTest)
+        self.assertFalse(m.isTestTrace)
         self.assertEqual(m.numProxyRoots, 0)
         self.assertEqual(m.tags, [])
         self.assertEqual(m.cycles, 0)

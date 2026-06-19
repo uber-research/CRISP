@@ -267,10 +267,10 @@ class Graph:
 
         try:
             if useParquet:
-                potentialRoots, isCtfTest = self.parseNodeFromParquet(data)
+                potentialRoots, isTestTrace = self.parseNodeFromParquet(data)
             else:
-                potentialRoots, isCtfTest = self.parseNode(data)
-            self.isCtfTest = isCtfTest
+                potentialRoots, isTestTrace = self.parseNode(data)
+            self.isTestTrace = isTestTrace
         except Exception as e:
             logging.warning(f"self.parseNode failed in file {filename}!")
             logging.warning(f"Exception: {e}")
@@ -677,7 +677,7 @@ class Graph:
 
         potentialRoots = []
         numErrors = 0
-        isCtfTest = False
+        isTestTrace = False
         errPropNodes = {}
 
         # pass 1: record service names and other KV data first
@@ -685,7 +685,7 @@ class Graph:
             for p in item[PROCESSES]:
                 self.processName[p] = item[PROCESSES][p]["serviceName"]
                 if isTestTraceByServiceName(self.processName[p]):
-                    isCtfTest = True
+                    isTestTrace = True
                 if TAGS in item[PROCESSES][p]:
                     for dictionary in item[PROCESSES][p][TAGS]:
                         if dictionary["key"] == HOSTNAME:
@@ -717,7 +717,7 @@ class Graph:
                 opName = span[OPERATION_NAME]
                 pid = span[PROCESS_ID]
                 if isTestTraceByOpName(opName):
-                    isCtfTest = True
+                    isTestTrace = True
 
                 node = GraphNode(
                     thisSpan,
@@ -745,7 +745,7 @@ class Graph:
         if TESTING in jsonData and len(jsonData[TESTING]) > 0:
             self.setTestResult(jsonData[TESTING])
 
-        return potentialRoots, isCtfTest
+        return potentialRoots, isTestTrace
 
     def parseNodeFromParquet(self, parquetData):
         # Builds graph from Parquet data and returns potential roots.
@@ -757,7 +757,7 @@ class Graph:
         # Instead we assume if the ParentSpanID is non empty then it's a valid parent-child relationship.
         potentialRoots = []
         numErrors = 0
-        isCtfTest = False
+        isTestTrace = False
         errPropNodes = {}
         pidMap = {}  # Mapping from serviceName to a unique pid, required by findAllRoots() and other functions.
 
@@ -780,7 +780,7 @@ class Graph:
                 self.hostMap[pid] = hostName
 
             if isTestTraceByServiceName(serviceName):
-                isCtfTest = True
+                isTestTrace = True
 
         # Pass 2: Extract spans and create one GraphNode for each
         for item in parquetSpanSets:
@@ -797,7 +797,7 @@ class Graph:
                 hostName = item[PARQUET_PROCESS][PARQUET_HOSTNAME]
 
                 if isTestTraceByOpName(operationName):
-                    isCtfTest = True
+                    isTestTrace = True
 
                 # Use the tuple (serviceName, hostName) as the key to get the pid from pidMap
                 service_host_key = (serviceName, hostName)
@@ -841,7 +841,7 @@ class Graph:
         # Pass 4: Propagate errors
         self.propagateErrorsToRoots(potentialRoots, errPropNodes)
 
-        return potentialRoots, isCtfTest
+        return potentialRoots, isTestTrace
 
     def removeExcludedOps(self, curNode, exclusionSet):
         removeList = []
@@ -2567,7 +2567,7 @@ class Graph:
             len(criticalPath),
             node.returnError,
             propToRootErrCCT,
-            self.isCtfTest,
+            self.isTestTrace,
             self.numProxyRoots,
             self.tags,
             cycles,

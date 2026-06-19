@@ -420,7 +420,7 @@ class Metrics:
         numNodesOnCP,
         rootReturnError,
         propToRootErrCCT,
-        isCtfTest,
+        isTestTrace,
         numProxyRoots,
         tags,
         cycles,
@@ -452,7 +452,7 @@ class Metrics:
         self.numNodesOnCP = numNodesOnCP
 
         self.rootReturnError = rootReturnError
-        self.isCtfTest = isCtfTest
+        self.isTestTrace = isTestTrace
         self.numProxyRoots = numProxyRoots
         self.tags = tags
         self.cycles = cycles

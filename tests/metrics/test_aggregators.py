@@ -74,7 +74,7 @@ def getDummyMetric(**kwargs):
         numNodesOnCP=0,
         rootReturnError=False,
         propToRootErrCCT={},
-        isCtfTest=False,
+        isTestTrace=False,
         numProxyRoots=0,
         tags=[],
         cycles={},

@@ -156,6 +156,7 @@ class Config:
         numShards: int = 1,
         shardId: int = 0,
         errorAnalysis: bool = False,
+        ignoreTestTraces: bool = False,
         deltaMicroSec: int = 0,
         deltaTargetService: typing.Optional[str] = None,
         deltaTargetOperation: typing.Optional[str] = None,
@@ -204,6 +205,7 @@ class Config:
             int(self.qps / (self.ioParallelism * self.numShards)),
         )
         self.errorAnalysis = errorAnalysis
+        self.ignoreTestTraces = ignoreTestTraces
         self.lightMode = lightMode
         self.mergeAllRoots = mergeAllRoots
         self.maxExemplars = maxExemplars

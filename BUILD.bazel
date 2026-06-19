@@ -47,6 +47,7 @@ py_test(
         "//crisp:pipeline",
         "//crisp:get_trace",
         "//crisp:exceptions",
+        "//crisp:process_trace",
         "@pypi//boto3",
         "@pypi//botocore",
         "@pypi//pytest",
