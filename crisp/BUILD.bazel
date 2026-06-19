@@ -123,3 +123,23 @@ py_library(
         "//crisp:common",
     ],
 )
+
+py_library(
+    name = "exceptions",
+    srcs = ["exceptions.py"],
+    visibility = ["//visibility:public"],
+    deps = [],
+)
+
+py_library(
+    name = "get_trace",
+    srcs = ["get_trace.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crisp:common",
+        "//crisp:exceptions",
+        "@pypi//requests",
+        "@pypi//ratelimit",
+        "@pypi//tenacity",
+    ],
+)
