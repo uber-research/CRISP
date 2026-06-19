@@ -40,6 +40,7 @@ py_test(
         "//crisp:pkg",
         "//crisp:yaml_merger",
         "//crisp:trace_merger",
+        "//crisp:flamegraph",
         "@pypi//pytest",
     ],
     env = {"MPLBACKEND": "Agg"},
@@ -81,6 +82,16 @@ py_test(
     deps = [
         "//crisp:yaml_merger",
         "@pypi//pyyaml",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_flamegraph",
+    srcs = ["tests/test_flamegraph.py"],
+    deps = [
+        "//crisp:flamegraph",
+        "//crisp:pkg",
     ],
     imports = ["."],
 )
