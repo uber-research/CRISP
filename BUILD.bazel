@@ -143,3 +143,117 @@ py_test(
     ],
     imports = ["."],
 )
+
+# ---------------------------------------------------------------------------
+# crisp/utils tests
+# ---------------------------------------------------------------------------
+
+py_test(
+    name = "test_dict_utils",
+    srcs = ["tests/utils/test_dict_utils.py"],
+    main = "tests/utils/test_dict_utils.py",
+    deps = ["//crisp/utils:utils"],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_singleton_wrapper",
+    srcs = ["tests/utils/test_singleton_wrapper.py"],
+    main = "tests/utils/test_singleton_wrapper.py",
+    deps = ["//crisp/utils:utils"],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_span_utils",
+    srcs = ["tests/utils/test_span_utils.py"],
+    main = "tests/utils/test_span_utils.py",
+    deps = ["//crisp/utils:utils"],
+    imports = ["."],
+)
+
+# ---------------------------------------------------------------------------
+# crisp/shared tests
+# ---------------------------------------------------------------------------
+
+py_test(
+    name = "test_shared_constants",
+    srcs = ["tests/shared/test_constants.py"],
+    main = "tests/shared/test_constants.py",
+    deps = ["//crisp/shared:shared"],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_shared_models",
+    srcs = ["tests/shared/test_models.py"],
+    main = "tests/shared/test_models.py",
+    deps = [
+        "//crisp/shared:shared",
+        "//crisp/utils:utils",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_shared_utils",
+    srcs = ["tests/shared/test_utils.py"],
+    main = "tests/shared/test_utils.py",
+    deps = ["//crisp/shared:shared"],
+    imports = ["."],
+)
+
+# ---------------------------------------------------------------------------
+# crisp/metrics tests
+# ---------------------------------------------------------------------------
+
+py_test(
+    name = "test_aggregators",
+    srcs = ["tests/metrics/test_aggregators.py"],
+    main = "tests/metrics/test_aggregators.py",
+    deps = [
+        "//crisp/metrics:metrics",
+        "//crisp/shared:shared",
+        "@pypi//pytest",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_percentile_calculator",
+    srcs = ["tests/metrics/test_percentile_calculator.py"],
+    main = "tests/metrics/test_percentile_calculator.py",
+    deps = [
+        "//crisp/metrics:metrics",
+        "@pypi//pandas",
+    ],
+    imports = ["."],
+)
+
+# ---------------------------------------------------------------------------
+# crisp/output tests
+# ---------------------------------------------------------------------------
+
+py_test(
+    name = "test_csv_generators",
+    srcs = ["tests/output/test_csv_generators.py"],
+    main = "tests/output/test_csv_generators.py",
+    deps = [
+        "//crisp/output:output",
+        "//crisp/shared:shared",
+        "@pypi//pandas",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_formatters",
+    srcs = ["tests/output/test_formatters.py"],
+    main = "tests/output/test_formatters.py",
+    deps = [
+        "//crisp/output:output",
+        "//crisp/shared:shared",
+        "@pypi//pandas",
+    ],
+    imports = ["."],
+)

@@ -10,4 +10,5 @@ py_library(
     ],
     imports = ["../.."],
     visibility = ["//visibility:public"],
+    deps = ["//crisp/utils:utils"],
 )
