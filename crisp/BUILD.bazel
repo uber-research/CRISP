@@ -163,3 +163,13 @@ py_library(
         "@pypi//pyyaml",
     ],
 )
+
+py_binary(
+    name = "crisp_trace",
+    srcs = ["main.py"],
+    main = "main.py",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crisp:process_trace",
+    ],
+)
