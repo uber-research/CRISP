@@ -276,7 +276,7 @@
         "usagesDigest": "bW0K8rtcOKhprT4m41L0QM8RyjxUZYMvAMydPv5WUB8=",
         "recordedFileInputs": {
           "@@rules_python~//tools/publish/requirements_linux.txt": "8175b4c8df50ae2f22d1706961884beeb54e7da27bd2447018314a175981997d",
-          "@@//requirements_lock.txt": "3dd5e1b9176935046cd218953885ce6fbbbc278f0de4e43fb9dd76134ab38785",
+          "@@//requirements_lock.txt": "c5a17e2482d9aee68ff974113a7d532ad2751021949710e38e3c9823cbb2c5e7",
           "@@rules_fuzzing~//fuzzing/requirements.txt": "ab04664be026b632a0d2a2446c4f65982b7654f5b6851d2f9d399a19b7242a5b",
           "@@rules_python~//tools/publish/requirements_windows.txt": "7673adc71dc1a81d3661b90924d7a7c0fc998cd508b3cb4174337cef3f2de556",
           "@@protobuf~//python/requirements.txt": "983be60d3cec4b319dcab6d48aeb3f5b2f7c3350f26b3a9e97486c37967c73c5",
@@ -576,6 +576,16 @@
               "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
               "repo": "pypi_311",
               "requirement": "pluggy==1.6.0"
+            }
+          },
+          "pypi_311_protobuf": {
+            "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
+            "ruleClassName": "whl_library",
+            "attributes": {
+              "dep_template": "@pypi//{name}:{target}",
+              "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
+              "repo": "pypi_311",
+              "requirement": "protobuf==7.35.1"
             }
           },
           "pypi_311_pygments": {
@@ -3232,6 +3242,7 @@
                 "pandas": "{\"pypi_311_pandas\":[{\"version\":\"3.11\"}]}",
                 "pillow": "{\"pypi_311_pillow\":[{\"version\":\"3.11\"}]}",
                 "pluggy": "{\"pypi_311_pluggy\":[{\"version\":\"3.11\"}]}",
+                "protobuf": "{\"pypi_311_protobuf\":[{\"version\":\"3.11\"}]}",
                 "pygments": "{\"pypi_311_pygments\":[{\"version\":\"3.11\"}]}",
                 "pyparsing": "{\"pypi_311_pyparsing\":[{\"version\":\"3.11\"}]}",
                 "pytest": "{\"pypi_311_pytest\":[{\"version\":\"3.11\"}]}",
@@ -3264,6 +3275,7 @@
                 "pandas",
                 "pillow",
                 "pluggy",
+                "protobuf",
                 "pygments",
                 "pyparsing",
                 "pytest",

@@ -8,6 +8,7 @@ from unittest.mock import patch, mock_open
 import pytest
 
 from crisp import cct_utils
+from crisp.shared.models import CallPathProfile, MetricVals
 
 
 class TestParseCallPathPart(unittest.TestCase):
@@ -411,6 +412,215 @@ def test_cct_to_dot_full_pipeline_with_file():
         assert "incl: 600" in dot
     finally:
         os.unlink(temp_file)
+
+
+# ---------------------------------------------------------------------------
+# Tests for protobuf helpers
+# ---------------------------------------------------------------------------
+
+def _make_cpp(profile_dict: dict) -> CallPathProfile:
+    """Helper to build a CallPathProfile from a {key: (exemplars)} dict."""
+    kv = {}
+    for path_key, exemplars in profile_dict.items():
+        mv = MetricVals(inc=100, excl=50, freq=5, sid="span0", exemplars=exemplars)
+        kv[path_key] = mv
+    return CallPathProfile(kv, count=1, traceId="trace0")
+
+
+class TestBuildExemplarLookup(unittest.TestCase):
+
+    def test_none_cpp_returns_empty(self):
+        assert cct_utils._build_exemplar_lookup(None, max_exemplars=3) == {}
+
+    def test_zero_max_exemplars_returns_empty(self):
+        cpp = _make_cpp({"[svc] op": [("t1", "s1")]})
+        assert cct_utils._build_exemplar_lookup(cpp, max_exemplars=0) == {}
+
+    def test_single_exemplar(self):
+        cpp = _make_cpp({"[svc] op": [("trace1", "span1")]})
+        result = cct_utils._build_exemplar_lookup(cpp, max_exemplars=3)
+        assert result == {"[svc] op": [("trace1", "span1")]}
+
+    def test_exemplars_capped_at_max(self):
+        exemplars = [("t1", "s1"), ("t2", "s2"), ("t3", "s3"), ("t4", "s4")]
+        cpp = _make_cpp({"[svc] op": exemplars})
+        result = cct_utils._build_exemplar_lookup(cpp, max_exemplars=2)
+        assert result == {"[svc] op": [("t1", "s1"), ("t2", "s2")]}
+
+    def test_keys_without_exemplars_excluded(self):
+        kv = {
+            "[svc] withEx": MetricVals(100, 50, 5, "s0", exemplars=[("t1", "s1")]),
+            "[svc] noEx": MetricVals(100, 50, 5, "s0", exemplars=[]),
+        }
+        cpp = CallPathProfile(kv, count=1, traceId="t0")
+        result = cct_utils._build_exemplar_lookup(cpp, max_exemplars=3)
+        assert "[svc] withEx" in result
+        assert "[svc] noEx" not in result
+
+    def test_multiple_keys(self):
+        cpp = _make_cpp({
+            "[svcA] op1": [("t1", "s1")],
+            "[svcA] op1->[svcB] op2": [("t2", "s2"), ("t3", "s3")],
+        })
+        result = cct_utils._build_exemplar_lookup(cpp, max_exemplars=5)
+        assert len(result) == 2
+        assert result["[svcA] op1"] == [("t1", "s1")]
+        assert result["[svcA] op1->[svcB] op2"] == [("t2", "s2"), ("t3", "s3")]
+
+
+class TestCCTKeyToProfileKey(unittest.TestCase):
+
+    def test_single_node(self):
+        call_path = [{"service": "svcA", "operation_name": "opA"}]
+        assert cct_utils._cct_key_to_profile_key(call_path) == "[svcA] opA"
+
+    def test_two_nodes(self):
+        call_path = [
+            {"service": "svcA", "operation_name": "opA"},
+            {"service": "svcB", "operation_name": "opB"},
+        ]
+        assert cct_utils._cct_key_to_profile_key(call_path) == "[svcA] opA->[svcB] opB"
+
+    def test_three_nodes(self):
+        call_path = [
+            {"service": "gateway", "operation_name": "handle"},
+            {"service": "auth", "operation_name": "validate"},
+            {"service": "db", "operation_name": "query"},
+        ]
+        result = cct_utils._cct_key_to_profile_key(call_path)
+        assert result == "[gateway] handle->[auth] validate->[db] query"
+
+    def test_empty_path(self):
+        assert cct_utils._cct_key_to_profile_key([]) == ""
+
+
+class TestCreateProtobufResponseWithExemplars(unittest.TestCase):
+
+    def test_empty_summaries_returns_empty_response(self):
+        from crisp.proto import analyzer_pb2
+        response = cct_utils.create_protobuf_response_with_exemplars([])
+        assert isinstance(response, analyzer_pb2.AnalyzeResponse)
+        assert len(response.report_window_1) == 0
+
+    def test_single_summary_no_exemplars(self):
+        summaries = [
+            {
+                "call_path": [
+                    {"service": "svcA", "operation_name": "opA"},
+                    {"service": "svcB", "operation_name": "opB"},
+                ],
+                "duration": 500,
+                "frequency": 10,
+            }
+        ]
+        response = cct_utils.create_protobuf_response_with_exemplars(summaries)
+        assert len(response.report_window_1) == 1
+        entry = response.report_window_1[0]
+        assert len(entry.call_path) == 2
+        assert entry.call_path[0].service == "svcA"
+        assert entry.call_path[0].operation_name == "opA"
+        assert entry.call_path[1].service == "svcB"
+        assert entry.call_path[1].operation_name == "opB"
+        assert entry.base.frequency == 10
+        assert entry.base.duration.ToMicroseconds() == 500
+
+    def test_exemplars_attached_to_leaf(self):
+        summaries = [
+            {
+                "call_path": [
+                    {"service": "svcA", "operation_name": "opA"},
+                    {"service": "svcB", "operation_name": "opB"},
+                ],
+                "duration": 100,
+                "frequency": 5,
+            }
+        ]
+        cpp = _make_cpp({
+            "[svcA] opA->[svcB] opB": [("traceX", "spanX"), ("traceY", "spanY")],
+        })
+        response = cct_utils.create_protobuf_response_with_exemplars(
+            summaries, merged_cpp=cpp, max_exemplars=3,
+        )
+        entry = response.report_window_1[0]
+        # Exemplars should be on the leaf (svcB), not on the intermediate (svcA).
+        assert len(entry.call_path[0].exemplars) == 0
+        assert len(entry.call_path[1].exemplars) == 2
+        assert entry.call_path[1].exemplars[0].trace_id == "traceX"
+        assert entry.call_path[1].exemplars[0].span_id == "spanX"
+        assert entry.call_path[1].exemplars[1].trace_id == "traceY"
+        assert entry.call_path[1].exemplars[1].span_id == "spanY"
+
+    def test_exemplars_capped_by_max_exemplars(self):
+        summaries = [
+            {
+                "call_path": [{"service": "svc", "operation_name": "op"}],
+                "duration": 200,
+                "frequency": 2,
+            }
+        ]
+        cpp = _make_cpp({
+            "[svc] op": [("t1", "s1"), ("t2", "s2"), ("t3", "s3"), ("t4", "s4")],
+        })
+        response = cct_utils.create_protobuf_response_with_exemplars(
+            summaries, merged_cpp=cpp, max_exemplars=2,
+        )
+        leaf = response.report_window_1[0].call_path[0]
+        assert len(leaf.exemplars) == 2
+
+    def test_no_exemplars_when_max_exemplars_zero(self):
+        summaries = [
+            {
+                "call_path": [{"service": "svc", "operation_name": "op"}],
+                "duration": 200,
+                "frequency": 2,
+            }
+        ]
+        cpp = _make_cpp({"[svc] op": [("t1", "s1")]})
+        response = cct_utils.create_protobuf_response_with_exemplars(
+            summaries, merged_cpp=cpp, max_exemplars=0,
+        )
+        leaf = response.report_window_1[0].call_path[0]
+        assert len(leaf.exemplars) == 0
+
+    def test_multiple_summaries(self):
+        summaries = [
+            {
+                "call_path": [{"service": "svc1", "operation_name": "op1"}],
+                "duration": 100,
+                "frequency": 1,
+            },
+            {
+                "call_path": [{"service": "svc2", "operation_name": "op2"}],
+                "duration": 200,
+                "frequency": 2,
+            },
+        ]
+        response = cct_utils.create_protobuf_response_with_exemplars(summaries)
+        assert len(response.report_window_1) == 2
+        assert response.report_window_1[0].base.frequency == 1
+        assert response.report_window_1[1].base.frequency == 2
+
+    def test_serialization_roundtrip(self):
+        """Serialized bytes can be deserialized back to an identical message."""
+        from crisp.proto import analyzer_pb2
+        summaries = [
+            {
+                "call_path": [
+                    {"service": "gw", "operation_name": "handle"},
+                    {"service": "db", "operation_name": "query"},
+                ],
+                "duration": 750,
+                "frequency": 7,
+            }
+        ]
+        cpp = _make_cpp({"[gw] handle->[db] query": [("tABC", "sABC")]})
+        original = cct_utils.create_protobuf_response_with_exemplars(
+            summaries, merged_cpp=cpp, max_exemplars=3,
+        )
+        serialized = original.SerializeToString()
+        recovered = analyzer_pb2.AnalyzeResponse()
+        recovered.ParseFromString(serialized)
+        assert recovered == original
 
 
 if __name__ == '__main__':
