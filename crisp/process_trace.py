@@ -2130,12 +2130,11 @@ def processReal(c: common.Config) -> int:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main() -> int:
     c = initArgs()
     if c.lightMode:
-        lightProcess(c)
-        return
-    processReal(c)
+        return lightProcess(c)
+    return processReal(c)
 
 
 if __name__ == "__main__":

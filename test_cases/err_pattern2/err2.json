@@ -1,0 +1,81 @@
+{
+    "data": [
+        {
+            "processes": {
+                "S1": {
+                    "serviceName": "S1",
+                    "tags": [
+                    ]
+                },
+                "S2": {
+                    "serviceName": "S2",
+                    "tags": [
+                    ]
+                }
+            },
+            "traceID": "A",
+            "spans": [
+                {
+                    "traceID": "A",
+                    "spanID": "A",
+                    "operationName": "O1",
+                    "references": [],
+                    "startTime": 0,
+                    "duration": 100,
+                    "processID": "S1",
+                    "warnings": null,
+                    "tags": [
+                        {
+                            "key": "error",
+                            "type": "bool",
+                            "value": true
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "B",
+                    "operationName": "O2",
+                    "startTime": 70,
+                    "duration": 30,
+                    "processID": "S2",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "testing": {
+        "opTimeExclusive": {
+            "[S1] O1": 70,
+            "[S2] O2": 30
+        },
+        "noErrCP": {
+        },
+        "totalWork": 130,
+        "timeSavedOnWork": 100,
+        "timeSavedOnCP": 100,
+        "errOpTimeInclusive": {
+            "[S1] O1": 100
+        },
+        "errOpTimeExclusive": {
+            "[S1] O1": 70
+        },
+        "errCallpathTimeExclusive": {
+            "[S1] O1": 70
+        },
+        "errCounts": {
+            "[S1] O1": [1,0,0]
+        }
+    },
+    "total": 0,
+    "limit": 0,
+    "offset": 0,
+    "errors": null
+}
