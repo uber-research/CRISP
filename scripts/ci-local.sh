@@ -32,8 +32,8 @@ if [[ "$INSTALL" == 1 ]]; then
 fi
 
 "$PY" -m pytest -q
-chmod +x flamegraph.pl difffolded.pl
-bash test.sh
+chmod +x crisp/flamegraph.pl crisp/difffolded.pl
+bash scripts/test.sh
 
 if [[ "$WITH_BAZEL" == 1 ]]; then
   if command -v bazelisk >/dev/null 2>&1; then
