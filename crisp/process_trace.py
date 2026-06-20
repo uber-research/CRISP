@@ -1860,7 +1860,7 @@ def seqProcess(c: common.Config):
     for traceFile in c.jaegerTraceFiles:
         traceMetrics = process(traceFile, c)
         if traceMetrics:
-            metrics.extend(traceMetrics)
+            metrics.append(traceMetrics)
     return metrics
 
 
