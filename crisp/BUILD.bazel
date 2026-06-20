@@ -91,7 +91,10 @@ py_library(
     name = "cct_utils",
     srcs = ["cct_utils.py"],
     visibility = ["//visibility:public"],
-    deps = [],
+    deps = [
+        "//crisp/proto:proto",
+        "//crisp/shared:shared",
+    ],
 )
 
 py_library(
@@ -149,6 +152,7 @@ py_library(
     srcs = ["process_trace.py"],
     visibility = ["//visibility:public"],
     deps = [
+        "//crisp:cct_utils",
         "//crisp:common",
         "//crisp:constants",
         "//crisp:flamegraph",

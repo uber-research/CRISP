@@ -18,7 +18,11 @@ import yaml
 
 import crisp.common as common
 import crisp.flamegraph as flamegraph
-from crisp.cct_utils import cct_to_dot, parse_cct_file
+from crisp.cct_utils import (
+    cct_to_dot,
+    create_protobuf_response_with_exemplars,
+    parse_cct_file,
+)
 from crisp.graph import Graph, accumulateInDict
 from crisp.metrics.aggregators import (
     MergeCallPathProfilesWithExample,
@@ -2054,11 +2058,7 @@ def performCriticalPathAnalysis(c: common.Config) -> int:
 
 
 def _writeCCTOutputs(cctFile: str, flameGraphStr: str, merged_cpp, max_exemplars: int = 3) -> None:
-    """Write .cct and .dot outputs for a flamegraph string.
-
-    Note: protobuf (.pb) output is not produced in the OSS build because
-    create_protobuf_response_with_exemplars is deferred to a later PR.
-    """
+    """Write .cct, .dot, and .pb outputs for a flamegraph string."""
     with open(cctFile, "w") as f:
         f.write(flameGraphStr)
     logging.info("Wrote CCT file: %s", cctFile)
@@ -2069,6 +2069,12 @@ def _writeCCTOutputs(cctFile: str, flameGraphStr: str, merged_cpp, max_exemplars
     with open(dot_file, "w", encoding="utf-8") as f_dot:
         f_dot.write(dot_str)
     logging.info("Wrote DOT file: %s", dot_file)
+
+    pb_response = create_protobuf_response_with_exemplars(summaries, merged_cpp, max_exemplars)
+    pb_file = os.path.splitext(cctFile)[0] + ".pb"
+    with open(pb_file, "wb") as f_pb:
+        f_pb.write(pb_response.SerializeToString())
+    logging.info("Wrote protobuf file: %s", pb_file)
 
 
 def lightProcess(c: common.Config) -> int:

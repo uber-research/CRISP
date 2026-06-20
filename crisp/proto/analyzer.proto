@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package crisp.analyzer;
+
+import "google/protobuf/duration.proto";
+
+option java_multiple_files = true;
+option java_outer_classname = "AnalyzerProto";
+option java_package = "com.crisp.analyzer";
+
+// CallPath represents one step in a call chain.
+message CallPath {
+    string service = 1;
+    string operation_name = 2;
+    repeated Exemplar exemplars = 5;
+}
+
+// Exemplar holds a trace+span reference pointing to a concrete example for a call path.
+message Exemplar {
+    string trace_id = 1;
+    string span_id = 2;
+}
+
+// PathStats holds aggregated duration and frequency for one call chain window.
+message PathStats {
+    google.protobuf.Duration duration = 1;
+    int32 frequency = 2;
+}
+
+// CallChainSummary represents one call chain with its aggregated stats.
+message CallChainSummary {
+    repeated CallPath call_path = 1;
+    PathStats base = 4;
+}
+
+// AnalyzeResponse returns call chain summaries for the analysis window.
+message AnalyzeResponse {
+    repeated CallChainSummary report_window_1 = 1;
+}

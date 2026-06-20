@@ -1,6 +1,9 @@
 import logging
 import re
-from typing import Any
+from typing import Any, Optional
+
+from crisp.proto import analyzer_pb2
+from crisp.shared.models import CallPathProfile
 
 logger = logging.getLogger(__name__)
 
@@ -167,4 +170,77 @@ def cct_to_dot(summaries: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-# create_protobuf_response_with_exemplars and helpers deferred — requires protobuf stub (PR 11)
+def _build_exemplar_lookup(
+    merged_cpp: Optional[CallPathProfile],
+    max_exemplars: int,
+) -> dict[str, list[tuple[str, str]]]:
+    """Build a mapping from ``->``-separated call path key to its exemplar list.
+
+    Returns an empty dict when ``merged_cpp`` is None or ``max_exemplars`` is 0.
+    """
+    if merged_cpp is None or max_exemplars <= 0:
+        return {}
+    lookup: dict[str, list[tuple[str, str]]] = {}
+    for call_path_str, metric_vals in merged_cpp.profile.items():
+        if metric_vals.exemplars:
+            lookup[call_path_str] = metric_vals.exemplars[:max_exemplars]
+    return lookup
+
+
+def _cct_key_to_profile_key(call_path: list[dict[str, str]]) -> str:
+    """Convert a parsed CCT call_path list to the ``->``-separated profile key.
+
+    For example ``[{'service': 'svcA', 'operation_name': 'opA'}]`` becomes
+    ``"[svcA] opA"``.
+    """
+    return "->".join(
+        f"[{p['service']}] {p['operation_name']}" for p in call_path
+    )
+
+
+def create_protobuf_response_with_exemplars(
+    call_chain_summaries: list[dict[str, Any]],
+    merged_cpp: Optional[CallPathProfile] = None,
+    max_exemplars: int = 3,
+) -> analyzer_pb2.AnalyzeResponse:
+    """Create a protobuf AnalyzeResponse from CCT summaries with exemplars.
+
+    Duration and frequency values are taken from the CCT summaries (which
+    contain the correctly averaged values), while exemplar (trace_id, span_id)
+    pairs are grafted from the merged CallPathProfile onto the leaf CallPath
+    of each entry.
+
+    Args:
+        call_chain_summaries: Parsed CCT summaries from ``parse_cct_file``.
+        merged_cpp: Optional merged call-path profile carrying exemplar IDs.
+        max_exemplars: Maximum exemplar pairs to attach per leaf call path.
+
+    Returns:
+        A populated ``AnalyzeResponse`` protobuf message.
+    """
+    exemplar_lookup = _build_exemplar_lookup(merged_cpp, max_exemplars)
+
+    response = analyzer_pb2.AnalyzeResponse()
+    for summary in call_chain_summaries:
+        entry = response.report_window_1.add()
+        call_path = summary['call_path']
+        for i, path in enumerate(call_path):
+            cp = entry.call_path.add()
+            cp.service = path['service']
+            cp.operation_name = path['operation_name']
+
+            is_leaf = i == len(call_path) - 1
+            if is_leaf and exemplar_lookup:
+                profile_key = _cct_key_to_profile_key(call_path)
+                for trace_id, span_id in exemplar_lookup.get(profile_key, []):
+                    ex = cp.exemplars.add()
+                    ex.trace_id = str(trace_id)
+                    ex.span_id = str(span_id)
+
+        entry.base.duration.FromMicroseconds(summary['duration'])
+        entry.base.frequency = summary['frequency']
+
+    if not response.IsInitialized():
+        logger.error("Failed to initialize protobuf message")
+        return analyzer_pb2.AnalyzeResponse()
+    return response
