@@ -1,4 +1,6 @@
 # ruff: noqa: I001
+import time
+import types
 import argparse
 import glob
 import json
@@ -7,7 +9,7 @@ import multiprocessing as mp
 import os
 import re
 from datetime import datetime
-from functools import partial
+from functools import partial, reduce
 from typing import Any
 
 import numpy as np
@@ -16,12 +18,24 @@ import yaml
 
 import crisp.common as common
 import crisp.flamegraph as flamegraph
-from crisp.graph import Graph
-from crisp.metrics.aggregators import mergeCallChains, mergeExampleID
+from crisp.cct_utils import cct_to_dot, parse_cct_file
+from crisp.graph import Graph, accumulateInDict
+from crisp.metrics.aggregators import (
+    MergeCallPathProfilesWithExample,
+    MergeCallPathProfilesWithExemplars,
+    mergeCallChains,
+    mergeExampleID,
+)
 from crisp.metrics.percentile_calculator import genLatencyPercentile
+from crisp.output.csv_generators import (
+    genCrossRegionCallsCSVFile,
+    genCyclesCSVFile,
+    genHypoLatencyCSVFile,
+    genSummaryCSVFile,
+)
 from crisp.output.formatters import makeClickable, renameSortableIcon
 from crisp.shared.constants import JAEGER_UI_URL
-from crisp.shared.models import LatencyData
+from crisp.shared.models import LatencyData, QuantizedMetrics, SavingData
 from crisp.shared.utils import getLeafNodeFromCallPath
 
 
@@ -1503,72 +1517,619 @@ def genTraceCSVFile(metrics, c: common.Config):
 
 
 # ---------------------------------------------------------------------------
+# Error analysis helpers
+# ---------------------------------------------------------------------------
+
+def genPercentErrorFile(percCPErrList, percConnectedToCPErrList, c: common.Config):
+    """Write percentError.csv — histogram of CP-error and connected-to-CP-error rates."""
+    outputDir = c.getOutputDir()
+    percentErrorFile = os.path.join(outputDir, common.PERCENT_ERROR_CSV)
+    logging.info(
+        "[%s]%s percent error file %s",
+        c.serviceName, c.operationName, percentErrorFile,
+    )
+    fixedBins = [0.0, 1e-10, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    hist1, bins = np.histogram(percCPErrList, bins=fixedBins)
+    hist2, bins = np.histogram(percConnectedToCPErrList, bins=fixedBins)
+    df = pd.DataFrame(
+        {
+            common.PERCENT_ERRORS_COL: bins[0:11],
+            common.NUM_TRACES_FOR_CP_ERRORS_COL: hist1,
+            common.NUM_TRACES_FOR_CONNECTED_TO_CP_ERRORS_COL: hist2,
+        },
+    )
+    df = df.sort_values(by=[common.PERCENT_ERRORS_COL])
+    df.to_csv(percentErrorFile, index=False)
+    return percentErrorFile
+
+
+def genSavingPotential(metrics, c: common.Config):
+    """Write savingPotential.csv — per-op error-removal saving potential."""
+    outputDir = c.getOutputDir()
+    savingPotentialFile = os.path.join(outputDir, common.SAVING_POTENTIAL_CSV)
+    logging.info(
+        "[%s]%s saving potential file %s",
+        c.serviceName, c.operationName, savingPotentialFile,
+    )
+    finalSavingMap = {}
+    for m in metrics:
+        if m.rootReturnError or (m.isTestTrace and c.ignoreTestTraces):
+            continue
+        latency = m.latency
+        saving = m.errCPMetrics.savingPotential
+        for k, v in saving.items():
+            accumulateInDict(finalSavingMap, k, SavingData(v.timeSaved, latency, v.opCount))
+
+    savingHeader = [
+        common.OP_NAME_COL,
+        common.TIME_SAVED_ON_CP_COL,
+        common.LATENCY_COL,
+        common.NUM_OP_COL,
+    ]
+    df = pd.DataFrame(
+        [(k, v.timeSaved, v.latency, v.opCount) for k, v in finalSavingMap.items()],
+        columns=savingHeader,
+    )
+    df[common.PERCENT_LATENCY_SAVED_COL] = (
+        df[common.TIME_SAVED_ON_CP_COL] / df[common.LATENCY_COL]
+    )
+    df = df.sort_values(by=[common.PERCENT_LATENCY_SAVED_COL])
+    df.to_csv(savingPotentialFile, index=False)
+    return savingPotentialFile
+
+
+def genErrStatsFiles(metrics, c: common.Config):
+    """Write five error-stats CSVs: errDepth, percentErrDepth, errPropLength, resiliency, perTraceErrInfo."""
+    outputDir = c.getOutputDir()
+    errDepthFile = os.path.join(outputDir, common.ERROR_DEPTH_CSV)
+    percentErrDepthFile = os.path.join(outputDir, common.PERCENT_ERROR_DEPTH_CSV)
+    errPropLengthFile = os.path.join(outputDir, common.ERROR_PROP_LENGTH_CSV)
+    resiliencyFile = os.path.join(outputDir, common.RESILIENCY_CSV)
+    perTraceErrInfoFile = os.path.join(outputDir, common.PER_TRACE_ERR_INFO_CSV)
+    for label, path in [
+        ("error depth", errDepthFile),
+        ("percent error depth", percentErrDepthFile),
+        ("error prop length", errPropLengthFile),
+        ("resiliency", resiliencyFile),
+        ("perTraceErrInfo", perTraceErrInfoFile),
+    ]:
+        logging.info("[%s]%s %s file %s", c.serviceName, c.operationName, label, path)
+
+    finalDepthMap = {}
+    finalPropLengthMap = {}
+    finalResiliencyMap = {}
+    percentSelfErrDepth = []
+    percentStoppedErrDepth = []
+    propagationPerTraceHistoAll = []
+
+    for m in metrics:
+        if m.isTestTrace and c.ignoreTestTraces:
+            continue
+        hasErr = common.HAS_ROOT_ERR if m.rootReturnError else common.NO_ROOT_ERR
+        for propType, quantizedErr in zip(
+            [
+                common.PRORP_TO_ROOT,
+                common.NOT_PRORP_TO_ROOT,
+                common.PRORP_TO_ROOT_ON_CP,
+                common.NOT_PRORP_TO_ROOT_ON_CP,
+                common.SUPRESSED_ERR,
+                common.SUPRESSED_ERR_ON_CP,
+            ],
+            [
+                m.errMetrics.propToRootHistoQuantized,
+                m.errMetrics.notPropToRootHistoQuantized,
+                m.errMetrics.propToRootOnCPHistoQuantized,
+                m.errMetrics.notPropToRootOnCPHistoQuantized,
+                m.errMetrics.supressHistoQuantized,
+                m.errMetrics.supressOnCPHistoQuantized,
+            ],
+        ):
+            if quantizedErr.isValid:
+                propagationPerTraceHistoAll.append(
+                    [
+                        m.traceID,
+                        *[hasErr, propType, str(m.numNodes), str(m.depth), str(m.numNodesOnCP)],
+                        *quantizedErr.getRow(),
+                    ],
+                )
+        if m.rootReturnError:
+            continue
+        trace_depth = m.depth
+        for key, val in m.errMetrics.errDepthMap.items():
+            accumulateInDict(finalDepthMap, key, val)
+        percentSelfErrDepth = [d / trace_depth for d in m.errMetrics.selfErrDepthList]
+        percentStoppedErrDepth = [d / trace_depth for d in m.errMetrics.stoppedErrDepthList]
+        for key, val in m.errMetrics.errPropLengthMap.items():
+            accumulateInDict(finalPropLengthMap, key, val)
+        for key, val in m.errMetrics.resiliencyMap.items():
+            accumulateInDict(finalResiliencyMap, key, val)
+
+    propagationPerTraceHeader = [
+        common.TRACE_COL,
+        common.ROOT_HAS_ERR_COL,
+        common.METRIC_COL,
+        common.NUM_NODES_COL,
+        common.MAX_DEPTH_COL,
+        common.NUM_NODES_ON_CP_COL,
+        *QuantizedMetrics.headers,
+    ]
+    pd.DataFrame(propagationPerTraceHistoAll, columns=propagationPerTraceHeader).to_csv(
+        perTraceErrInfoFile, index=False,
+    )
+
+    errDepthHeader = [
+        common.DEPTH_COL, common.NUM_SELF_ERRORS_COL,
+        common.NUM_PROPAGATED_ERRORS_COL, common.NUM_STOPPED_ERRORS_COL,
+    ]
+    df = pd.DataFrame(
+        [(k, v.selfErrors, v.propagatedErrors, v.stoppedErrors) for k, v in finalDepthMap.items()],
+        columns=errDepthHeader,
+    )
+    df.sort_values(by=[common.DEPTH_COL]).to_csv(errDepthFile, index=False)
+
+    fixedBins = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    hist1, bins = np.histogram(percentSelfErrDepth, bins=fixedBins)
+    hist2, bins = np.histogram(percentStoppedErrDepth, bins=fixedBins)
+    pd.DataFrame(
+        {common.PERCENT_DEPTH_COL: bins[0:10], common.NUM_SELF_ERRORS_COL: hist1, common.NUM_STOPPED_ERRORS_COL: hist2},
+    ).sort_values(by=[common.PERCENT_DEPTH_COL]).to_csv(percentErrDepthFile, index=False)
+
+    pd.DataFrame(list(finalPropLengthMap.items()), columns=[common.PROPAGATION_LENGTH_COL, common.NUM_SELF_ERRORS_COL]).sort_values(
+        by=[common.PROPAGATION_LENGTH_COL],
+    ).to_csv(errPropLengthFile, index=False)
+
+    resiliencyHeader = [common.OP_NAME_COL, common.NUM_STOPPED_ERRORS_COL, common.NUM_PROPAGATED_ERRORS_COL]
+    df = pd.DataFrame(
+        [(k, v.stoppedErrors, v.propagatedErrors) for k, v in finalResiliencyMap.items()],
+        columns=resiliencyHeader,
+    )
+    df[common.RESILIENCY_COL] = df[common.NUM_STOPPED_ERRORS_COL] / (
+        df[common.NUM_STOPPED_ERRORS_COL] + df[common.NUM_PROPAGATED_ERRORS_COL]
+    )
+    df.to_csv(resiliencyFile, index=False)
+
+    return errDepthFile, percentErrDepthFile, errPropLengthFile, resiliencyFile, perTraceErrInfoFile
+
+
+def computeSelfErrDepthMaps(depthMap, percentDepthMap, percentile, depthList, traceDepth):
+    """Compute percentile depth and update both absolute and relative depth maps."""
+    depth = np.percentile(depthList, percentile)
+    percDepth = np.round(depth / traceDepth, decimals=1)
+    accumulateInDict(depthMap, np.round(depth, decimals=0), 1)
+    accumulateInDict(percentDepthMap, np.round(percDepth, decimals=1), 1)
+
+
+def combineSelfErrToNumTracesData(mapList, first_col, colList):
+    """Outer-join a list of {value: count} dicts into a single sorted DataFrame."""
+    dfList = [
+        pd.DataFrame(list(mapList[i].items()), columns=[first_col, colList[i]])
+        for i in range(len(mapList))
+    ]
+    df = reduce(lambda x, r: pd.merge(x, r, on=first_col, how="outer"), dfList)
+    df = df.sort_values(by=[first_col])
+    return df.reindex(columns=[first_col, *colList])
+
+
+def genMaxErrDepthPropToRootToNumTracesFiles(metrics, c: common.Config):
+    """Write maxErrDepthPropToRoot and percentMaxErrDepthPropToRoot CSVs."""
+    outputDir = c.getOutputDir()
+    maxErrDepthFile = os.path.join(outputDir, common.MAX_ERROR_DEPTH_PROP_TO_ROOT_TO_NUM_TRACES_CSV)
+    percentMaxErrDepthFile = os.path.join(outputDir, common.PERCENT_MAX_ERROR_DEPTH_PROP_TO_ROOT_TO_NUM_TRACES_CSV)
+    logging.info("[%s]%s max error depth propagated to root file %s", c.serviceName, c.operationName, maxErrDepthFile)
+    logging.info("[%s]%s percent max error depth propagated to root file %s", c.serviceName, c.operationName, percentMaxErrDepthFile)
+
+    depthMap = {}
+    percDepthMap = {}
+    for m in metrics:
+        if (not m.rootReturnError) or (m.isTestTrace and c.ignoreTestTraces):
+            continue
+        maxDepthPropToRoot = m.errMetrics.maxErrDepthPropToRoot
+        accumulateInDict(depthMap, maxDepthPropToRoot, 1)
+        accumulateInDict(percDepthMap, np.round(maxDepthPropToRoot / m.depth, decimals=1), 1)
+
+    pd.DataFrame(list(depthMap.items()), columns=[common.MAX_ERR_DEPTH_PROP_TO_ROOT_COL, common.NUM_TRACES_COL]).sort_values(
+        by=[common.MAX_ERR_DEPTH_PROP_TO_ROOT_COL],
+    ).to_csv(maxErrDepthFile, index=False)
+    pd.DataFrame(list(percDepthMap.items()), columns=[common.PERCENT_MAX_ERR_DEPTH_PROP_TO_ROOT_COL, common.NUM_TRACES_COL]).sort_values(
+        by=[common.PERCENT_MAX_ERR_DEPTH_PROP_TO_ROOT_COL],
+    ).to_csv(percentMaxErrDepthFile, index=False)
+
+    return maxErrDepthFile, percentMaxErrDepthFile
+
+
+def genSelfErrDepthToNumTracesFiles(metrics, c: common.Config):
+    """Write selfErrDepthToNumTraces and percentSelfErrDepthToNumTraces CSVs."""
+    outputDir = c.getOutputDir()
+    selfErrDepthFile = os.path.join(outputDir, common.SELF_ERROR_DEPTH_TO_NUM_TRACES_CSV)
+    percentSelfErrDepthFile = os.path.join(outputDir, common.PERCENT_SELF_ERROR_DEPTH_TO_NUM_TRACES_CSV)
+    logging.info("[%s]%s self error depth to # traces file %s", c.serviceName, c.operationName, selfErrDepthFile)
+    logging.info("[%s]%s percent self error depth to # traces file %s", c.serviceName, c.operationName, percentSelfErrDepthFile)
+
+    mapList = [{}, {}, {}, {}, {}, {}]
+    percMapList = [{}, {}, {}, {}, {}, {}]
+    percentile = [0, 50, 90, 95, 99, 100]
+
+    for m in metrics:
+        if m.rootReturnError or (m.isTestTrace and c.ignoreTestTraces):
+            continue
+        depthList = m.errMetrics.selfErrDepthList
+        if len(depthList) > 0:
+            for i in range(len(percentile)):
+                computeSelfErrDepthMaps(mapList[i], percMapList[i], percentile[i], depthList, m.depth)
+
+    colList = [
+        common.NUM_TRACES_FOR_MIN_COL, common.NUM_TRACES_FOR_P50_COL,
+        common.NUM_TRACES_FOR_P90_COL, common.NUM_TRACES_FOR_P95_COL,
+        common.NUM_TRACES_FOR_P99_COL, common.NUM_TRACES_FOR_MAX_COL,
+    ]
+    combineSelfErrToNumTracesData(mapList, common.DEPTH_COL, colList).to_csv(selfErrDepthFile, index=False)
+    combineSelfErrToNumTracesData(percMapList, common.PERCENT_DEPTH_COL, colList).to_csv(percentSelfErrDepthFile, index=False)
+
+    return selfErrDepthFile, percentSelfErrDepthFile
+
+
+# ---------------------------------------------------------------------------
+# Flamegraph filter + tag YAML helpers
+# ---------------------------------------------------------------------------
+
+def GetFilteredMetrics(metrics, filter):
+    """Return the subset of metrics whose tags list contains the given filter dict."""
+    return [metric for metric in metrics if filter in metric.tags]
+
+
+def TagToStr(tag):
+    """Convert a tag dict to a filesystem-safe prefix string, e.g. 'env:prod'."""
+    name = tag[common.TAG_NAME]
+    value = tag[common.TAG_VALUE]
+    return common.replaceNonAlphaNumericWithUnderscore(name + ":" + value)
+
+
+def ProduceFlameGraphsForEachFilter(metrics, c: common.Config):
+    """Generate one FlameGraphSet per tag filter defined in config.tags."""
+    fgs = []
+    for filter in c.tags:
+        logging.info("Starting flameGraph for tag %s", filter)
+        filteredMetrics = GetFilteredMetrics(metrics, filter)
+        prefix = TagToStr(filter) + "_"
+        logging.info(
+            "Starting flameGraph for prefix %s, filteredMetrics=%d",
+            prefix, len(filteredMetrics),
+        )
+        fg = flamegraph.flameGraph(
+            filteredMetrics,
+            c.getOutputDir(),
+            c.serviceName,
+            c.operationName,
+            c.ignoreTestTraces,
+            prefix,
+            doRanges=c.doRanges,
+        )
+        fgs.append(fg)
+    return fgs
+
+
+def GetAllFlameGraphFiles(fgs):
+    """Collect all non-error flamegraph output files from a list of FlameGraphSets."""
+    files = []
+    for f in fgs:
+        files += f.GetAllFiles()
+    return files
+
+
+def GetAllErrorFlameGraphFiles(fgs):
+    """Collect all error flamegraph output files from a list of FlameGraphSets."""
+    files = []
+    for f in fgs:
+        files += f.GetAllErrorFiles()
+    return files
+
+
+def genTagYAML(c: common.Config):
+    """Write tags.yaml listing the tag name/value pairs from config."""
+    tagYAMLFile = os.path.join(c.getOutputDir(), "tags.yaml")
+    logging.info(
+        "Producing [%s]%s tag yaml file %s",
+        c.serviceName, c.operationName, tagYAMLFile,
+    )
+    newC = {}
+    for d in c.tags:
+        if common.TAG_NAME not in d:
+            raise ValueError(common.TAG_NAME + " not present in: " + str(d))
+        if common.TAG_VALUE not in d:
+            raise ValueError(common.TAG_VALUE + " not present in: " + str(d))
+        tag = d[common.TAG_NAME]
+        value = d[common.TAG_VALUE]
+        if tag in newC:
+            newC[tag].append(value)
+        else:
+            newC[tag] = [value]
+    for k in newC:
+        newC[k].sort()
+    with open(tagYAMLFile, "w") as outfile:
+        yaml.dump({"version": common.TAG_YAML_VERSION, "tags": newC}, outfile)
+    return tagYAMLFile
+
+
+# ---------------------------------------------------------------------------
+# Orchestration
+# ---------------------------------------------------------------------------
+
+def seqProcess(c: common.Config):
+    """Single-threaded fallback for mapReduce — useful for debugging."""
+    metrics = []
+    for traceFile in c.jaegerTraceFiles:
+        traceMetrics = process(traceFile, c)
+        if traceMetrics:
+            metrics.append(traceMetrics)
+    return metrics
+
+
+def getProcessedMetrics(c: common.Config):
+    """Load, process, and (optionally) anonymize all traces; return valid Metrics list."""
+    logging.info("Starting mapReduce")
+    if c.computeParallelism == 1:
+        metrics = seqProcess(c)
+    else:
+        metrics = mapReduce(c.computeParallelism, c.jaegerTraceFiles, c)
+
+    if c.anonymize:
+        sanitizeNames(metrics)
+
+    valid_metrics = [m for m in metrics if m]
+    total_attempted = (
+        len(c.jaegerTraceFiles)
+        if hasattr(c, "jaegerTraceFiles") and c.jaegerTraceFiles
+        else len(valid_metrics)
+    )
+    log_incomplete_trace_stats(valid_metrics, total_attempted, c.serviceName, c.operationName)
+    return valid_metrics
+
+
+def buildFlamegraphsFromMetrics(metrics, c: common.Config):
+    """Run the main flamegraph plus one per tag filter. Returns (fg, filteredFGs)."""
+    logging.info("Starting flameGraph")
+    fg = flamegraph.flameGraph(
+        metrics,
+        c.getOutputDir(),
+        c.serviceName,
+        c.operationName,
+        c.ignoreTestTraces,
+        doRanges=c.doRanges,
+    )
+    filteredFGs = ProduceFlameGraphsForEachFilter(metrics, c)
+    return fg, filteredFGs
+
+
+def logMetrics(c: common.Config, metrics, fg: flamegraph.FlameGraphSet):
+    """Log aggregate size/depth statistics for a completed analysis run."""
+    maxNodes = totalNodes = maxDepth = 0
+    for m in metrics:
+        totalNodes += m.numNodes
+        maxNodes = max(maxNodes, m.numNodes)
+        maxDepth = max(maxDepth, m.depth)
+    logging.info("maxNodes = %d, totalNodes=%d, maxDepth=%d", maxNodes, totalNodes, maxDepth)
+
+    traceSzs = sorted([m.fileSz for m in metrics])
+    cpSzs = sorted([m.cpSize for m in metrics])
+    errCPSzs = sorted([m.errCPMetrics.errCPSize for m in metrics])
+    ln = len(cpSzs)
+    percentiles = [0.5, 0.9, 0.95, 0.99]
+    if traceSzs:
+        logging.info(
+            "[%s]%s,traceSzs,P50,%d,P90,%d,P95,%d,P99,%d",
+            c.serviceName, c.operationName,
+            *[traceSzs[int(ln * i)] for i in percentiles],
+        )
+    if cpSzs:
+        logging.info(
+            "[%s]%s,cpSzs,P50,%d,P90,%d,P95,%d,P99,%d",
+            c.serviceName, c.operationName,
+            *[cpSzs[int(ln * i)] for i in percentiles],
+        )
+    if errCPSzs:
+        logging.info(
+            "[%s]%s,errCPSzs,P50,%d,P90,%d,P95,%d,P99=%d",
+            c.serviceName, c.operationName,
+            *[errCPSzs[int(ln * i)] for i in percentiles],
+        )
+    logging.info("[%s]%s,TotTraceSz,%d", c.serviceName, c.operationName, sum(traceSzs))
+    logging.info(
+        "[%s]%s TotCPSz:%d", c.serviceName, c.operationName,
+        fg.GetCCTSz(os.path.join(c.getOutputDir(), "flame-graph-P99.cct")),
+    )
+    logging.info(
+        "[%s]%s TotErrCPSz:%d", c.serviceName, c.operationName,
+        fg.GetCCTSz(os.path.join(c.getOutputDir(), "err-flame-graph-P99.cct")),
+    )
+
+
+def performErrorAnalysis(c: common.Config) -> int:
+    """Run error-only flamegraph analysis and populate c.filesToUpload."""
+    logging.info("Starting errorAnalysis")
+    metrics = getProcessedMetrics(c)
+    if not metrics:
+        logging.warning("No metrics found.")
+        return 1
+    fg, filteredFGs = buildFlamegraphsFromMetrics(metrics=metrics, c=c)
+    fgFiles = GetAllErrorFlameGraphFiles([fg, *filteredFGs])
+    c.filesToUpload = [*fgFiles]
+    logMetrics(c, metrics, fg)
+    return 0
+
+
+def performCriticalPathAnalysis(c: common.Config) -> int:
+    """Run the full critical-path analysis pipeline and populate c.filesToUpload."""
+    # Process traces — keep the raw (possibly-None) list aligned with jaegerTraceFiles
+    # for the flat-dict aggregation path, and the filtered list for CSV generators.
+    logging.info("Starting mapReduce")
+    if c.computeParallelism == 1:
+        rawMetrics = seqProcess(c)
+    else:
+        rawMetrics = mapReduce(c.computeParallelism, c.jaegerTraceFiles, c)
+
+    if c.anonymize:
+        sanitizeNames(rawMetrics)
+    metrics = [m for m in rawMetrics if m]
+    log_incomplete_trace_stats(metrics, len(c.jaegerTraceFiles), c.serviceName, c.operationName)
+
+    if not metrics:
+        logging.warning("No metrics found.")
+        return 1
+
+    fg, filteredFGs = buildFlamegraphsFromMetrics(metrics=metrics, c=c)
+
+    # traceIDIndex matches the jaegerTraceFiles ordering (used by the heatmap).
+    traceIDIndex = [getTraceIdFromFilePath(f) for f in c.jaegerTraceFiles]
+    traceToRootspanMap = {
+        getTraceIdFromFilePath(c.jaegerTraceFiles[i]): rawMetrics[i].rootSpanID
+        for i in range(len(rawMetrics))
+        if rawMetrics[i] is not None
+    }
+
+    logging.info("Starting aggregateMetrics")
+    exclusive, inclusive, aggregateCallMap = aggregateMetrics(rawMetrics, c.jaegerTraceFiles)
+
+    logging.info("Starting heatmapAndSummary")
+    heatMap, summary, criticalPathJSONStr = heatmapAndSummary(
+        exclusive, inclusive, aggregateCallMap, traceIDIndex, traceToRootspanMap,
+        c, c.jaegerTraceFiles,
+    )
+
+    logging.info("Starting genTimeSavedSummary")
+    pointLatencyPercentiles, headLatencyPercentile, tailLatencyPercentile, hypoLatencyPercentile = genTimeSavedSummary(metrics, c)
+
+    logging.info("Starting genTraceCSVFile")
+    traceStatsCSV, numDiscardedDueToRootError, numDiscardedTestTraces, percCPErrList, percConnectedToCPErrList = genTraceCSVFile(metrics, c)
+
+    logging.info("Starting genPercentErrorFile")
+    percentErrorFile = genPercentErrorFile(percCPErrList, percConnectedToCPErrList, c)
+    logging.info("Starting genErrStatsFiles")
+    errDepthFile, percentErrDepthFile, errPropLengthFile, resiliencyFile, perTraceErrInfoFile = genErrStatsFiles(metrics, c)
+    logging.info("Starting genMaxErrDepthPropToRootToNumTracesFiles")
+    maxErrDepthToRootFile, percMaxErrDepthToRootFile = genMaxErrDepthPropToRootToNumTracesFiles(metrics, c)
+    logging.info("Starting genSelfErrDepthToNumTracesFiles")
+    selfErrDepthFile, percentSelfErrDepthFile = genSelfErrDepthToNumTracesFiles(metrics, c)
+    logging.info("Starting genSavingPotential")
+    savingPotentialFile = genSavingPotential(metrics, c)
+
+    logging.info("Starting genSummaryCSVFile")
+    summaryCSVFile = genSummaryCSVFile(pointLatencyPercentiles, headLatencyPercentile, tailLatencyPercentile, c)
+    logging.info("Starting genCyclesCSVFile")
+    cyclesCSVFile = genCyclesCSVFile(metrics, c, filename=common.CYCLES_CSV)
+    logging.info("Starting genCrossRegionCallsCSVFile")
+    crossRegionCallsCSVFile = genCrossRegionCallsCSVFile(metrics, c, filename=common.CROSS_REGION_CALLS_CSV)
+    logging.info("Starting genHypoLatencyCSVFile")
+    hypoLatencyCSVFile = genHypoLatencyCSVFile(headLatencyPercentile, hypoLatencyPercentile, c)
+
+    logging.info("Starting genCriticalPathFiles")
+    criticalPathHTMLFile, jsonPath = genCriticalPathFiles(
+        fg.fgPctFilePair,
+        fg.errCPFGPctFilePair,
+        criticalPathJSONStr,
+        tailLatencyPercentile,
+        numDiscardedDueToRootError,
+        numDiscardedTestTraces,
+        heatMap,
+        summary,
+        c,
+    )
+
+    logging.info("Starting GetAllFlameGraphFiles")
+    fgFiles = GetAllFlameGraphFiles([fg, *filteredFGs])
+    tagYAMLFile = genTagYAML(c)
+
+    c.filesToUpload = [
+        criticalPathHTMLFile, jsonPath, traceStatsCSV, percentErrorFile,
+        errDepthFile, percentErrDepthFile, selfErrDepthFile, percentSelfErrDepthFile,
+        maxErrDepthToRootFile, percMaxErrDepthToRootFile, errPropLengthFile,
+        resiliencyFile, perTraceErrInfoFile, savingPotentialFile,
+        summaryCSVFile, hypoLatencyCSVFile, tagYAMLFile, *fgFiles,
+    ]
+    if cyclesCSVFile:
+        c.filesToUpload.append(cyclesCSVFile)
+    if crossRegionCallsCSVFile:
+        c.filesToUpload.append(crossRegionCallsCSVFile)
+    logMetrics(c, metrics, fg)
+    return 0
+
+
+def _writeCCTOutputs(cctFile: str, flameGraphStr: str, merged_cpp, max_exemplars: int = 3) -> None:
+    """Write .cct and .dot outputs for a flamegraph string.
+
+    Note: protobuf (.pb) output is not produced in the OSS build because
+    create_protobuf_response_with_exemplars is deferred to a later PR.
+    """
+    with open(cctFile, "w") as f:
+        f.write(flameGraphStr)
+    logging.info("Wrote CCT file: %s", cctFile)
+
+    summaries = parse_cct_file(cctFile)
+    dot_str = cct_to_dot(summaries)
+    dot_file = os.path.splitext(cctFile)[0] + ".dot"
+    with open(dot_file, "w", encoding="utf-8") as f_dot:
+        f_dot.write(dot_str)
+    logging.info("Wrote DOT file: %s", dot_file)
+
+
+def lightProcess(c: common.Config) -> int:
+    """Light mode: process traces and generate only the P0-100 call-path CCT file."""
+    metrics = getProcessedMetrics(c)
+    validMetrics = [m for m in metrics if m]
+
+    merged_cpp = MergeCallPathProfilesWithExemplars(validMetrics, c.maxExemplars)
+    cpps = [(m.latency, m.CPMetrics) for m in validMetrics]
+    flameGraphStr = flamegraph.aggregateCCTs(cpps, [], average=True)
+    outputDir = c.getOutputDir()
+    cctFile = os.path.join(outputDir, "light-flame-graph-P100.cct")
+    _writeCCTOutputs(cctFile, flameGraphStr, merged_cpp, c.maxExemplars)
+
+    if c.projectionEnabled:
+        projected_metrics = [
+            types.SimpleNamespace(CPMetrics=m.projectedCPMetrics, traceID=m.traceID)
+            for m in validMetrics
+            if m.projectedCPMetrics is not None
+        ]
+        projected_merged = (
+            MergeCallPathProfilesWithExemplars(projected_metrics, c.maxExemplars)
+            if projected_metrics
+            else None
+        )
+        projectedCpps = [
+            (m.latency, m.projectedCPMetrics)
+            for m in validMetrics
+            if m.projectedCPMetrics is not None
+        ]
+        if projectedCpps:
+            projectedFlameGraphStr = flamegraph.aggregateCCTs(projectedCpps, [], average=True)
+            projectedCctFile = os.path.join(outputDir, "light-projected-flame-graph-P100.cct")
+            _writeCCTOutputs(projectedCctFile, projectedFlameGraphStr, projected_merged, c.maxExemplars)
+            latencyChanges = [m.projectedLatency for m in validMetrics if m.projectedLatency is not None]
+            if latencyChanges:
+                avgLatencyChange = sum(latencyChanges) / len(latencyChanges)
+                logging.info(
+                    "Projection summary: avg latency change = %.1f μs across %d trace(s)",
+                    avgLatencyChange, len(latencyChanges),
+                )
+    return 0
+
+
+def processReal(c: common.Config) -> int:
+    """Dispatch to performErrorAnalysis or performCriticalPathAnalysis based on config."""
+    if c.errorAnalysis:
+        return performErrorAnalysis(c)
+    return performCriticalPathAnalysis(c)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    config = initArgs()
-    jaegerTraceFiles = config.jaegerTraceFiles
-
-    logging.info("Starting mapReduce over %d trace files", len(jaegerTraceFiles))
-    metrics = mapReduce(config.computeParallelism, jaegerTraceFiles, config)
-
-    valid = [m for m in metrics if m is not None]
-    maxNodes = max((m.numNodes for m in valid), default=0)
-    totalNodes = sum(m.numNodes for m in valid)
-    maxDepth = max((m.depth for m in valid), default=0)
-    logging.info(
-        "mapReduce complete: maxNodes=%d totalNodes=%d maxDepth=%d",
-        maxNodes, totalNodes, maxDepth,
-    )
-
-    if config.anonymize:
-        sanitizeNames(valid)
-
-    logging.info("Starting aggregateMetrics")
-    exclusive, inclusive, aggregateCallMap = aggregateMetrics(metrics, jaegerTraceFiles)
-
-    traceIDIndex = [os.path.splitext(os.path.basename(f))[0] for f in jaegerTraceFiles]
-    traceToRootspanMap = {
-        traceIDIndex[i]: metrics[i].rootSpanID
-        for i in range(len(traceIDIndex))
-        if metrics[i] is not None
-    }
-
-    outputDir = config.outputDir
-    logging.info("Starting flameGraph, outputDir=%s", outputDir)
-    flameGraphResult = flamegraph.flameGraph(
-        valid,
-        outputDir,
-        config.serviceName,
-        config.operationName,
-        config.ignoreTestTraces,
-        doRanges=config.doRanges,
-    )
-    flameGraphPctFilePair = flameGraphResult.fgPctFilePair
-
-    logging.info("Starting heatmapAndSummary")
-    heatMap, summary, criticalPathJSONStr = heatmapAndSummary(
-        exclusive, inclusive, aggregateCallMap, traceIDIndex,
-        traceToRootspanMap, config, jaegerTraceFiles,
-    )
-
-    criticalPathHTMLFile = os.path.join(outputDir, "criticalPaths.html")
-    logging.info(
-        "[%s] %s critical path file: %s",
-        config.serviceName, config.operationName, criticalPathHTMLFile,
-    )
-
-    with open(criticalPathHTMLFile, "w") as f:
-        f.write(HTML_PREFIX + heatMap)
-        f.write(HTML_GENERATION_TIME)
-        for pval, file in flameGraphPctFilePair:
-            src = os.path.basename(file)
-            f.write(
-                "<div> <h2>%s flame graph. </h2> <img src=%s></div>" % (pval, src)
-            )
-        f.write(summary)
-        f.write(HTML_SUFFIX)
+    c = initArgs()
+    if c.lightMode:
+        lightProcess(c)
+        return
+    processReal(c)
 
 
 if __name__ == "__main__":
