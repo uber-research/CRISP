@@ -9,7 +9,7 @@ Given a directory of [Jaeger](https://www.jaegertracing.io/) traces for a single
 
 - **HTML report** — interactive per-operation heatmap of critical-path time across all traces
 - **Flame graphs** — per-percentile SVG flame graphs (P50, P75, P95, …) via [Brendan Gregg's FlameGraph](https://github.com/brendangregg/FlameGraph)
-- **Call-chain tree (CCT)** — `.cct` and `.dot` files for downstream graph analysis
+- **Calling-context tree (CCT)** — `.cct` and `.dot` files for downstream graph analysis
 - **Protobuf output** — `.pb` binary using the bundled `analyzer.proto` schema
 - **CSVs** — per-trace stats, latency percentiles, saving potential, cross-region calls, error depth
 
@@ -120,7 +120,7 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 |---|---|
 | `criticalPaths.html` | Interactive HTML report with per-operation heatmap |
 | `flame-graph-P{N}.svg` | SVG flame graph at percentile N (requires `perl` on `PATH`) |
-| `*.cct` | Call-chain tree in folded-stack format |
+| `*.cct` | calling-context tree in folded-stack format |
 | `*.dot` | GraphViz DOT representation of the call-chain tree |
 | `*.pb` | Protobuf binary (`AnalyzeResponse` message from `crisp/proto/analyzer.proto`) |
 | `criticalPath*.csv` | Per-trace latency breakdown |
