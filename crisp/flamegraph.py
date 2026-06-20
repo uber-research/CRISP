@@ -252,6 +252,8 @@ def genFlameGraph(
                 )
             except FileNotFoundError:
                 logging.info("flamegraph.pl not found; wrote .cct file but skipped SVG")
+            except subprocess.CalledProcessError as e:
+                logging.warning("flamegraph.pl exited %d; skipped SVG for %s", e.returncode, flamegraphPath)
 
         # if there are predecessors, do a differential analysis with them
         if doDiffGraph:
@@ -269,6 +271,9 @@ def genFlameGraph(
                     except FileNotFoundError:
                         logging.info("difffolded.pl not found; skipping diff CCT")
                         continue
+                    except subprocess.CalledProcessError as e:
+                        logging.warning("difffolded.pl exited %d; skipping diff CCT", e.returncode)
+                        continue
                 # produce diff SVG
                 diffSVGFile = diffFilePath + ".svg"
                 with open(diffSVGFile, "w") as f:
@@ -276,6 +281,8 @@ def genFlameGraph(
                         subprocess.check_call((flameGraphPerl, diffFilePath), stdout=f)
                     except FileNotFoundError:
                         logging.info("flamegraph.pl not found; skipping diff SVG")
+                    except subprocess.CalledProcessError as e:
+                        logging.warning("flamegraph.pl exited %d; skipping diff SVG for %s", e.returncode, diffFilePath)
                 differentialFlameGraphFiles.append(diffSVGFile)
 
     return fgPctFilePair, differentialFlameGraphFiles
