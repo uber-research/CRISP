@@ -1,0 +1,282 @@
+{
+    "data": [
+        {
+            "processes": {
+                "S1": {
+                    "serviceName": "S1",
+                    "tags": [
+                    ]
+                },
+                "S2": {
+                    "serviceName": "S2",
+                    "tags": [
+                    ]
+                },
+                "S3": {
+                    "serviceName": "S3",
+                    "tags": [
+                    ]
+                },
+                "S4": {
+                    "serviceName": "S4",
+                    "tags": [
+                    ]
+                },
+                "S5": {
+                    "serviceName": "S5",
+                    "tags": [
+                    ]
+                },
+                "S6": {
+                    "serviceName": "S6",
+                    "tags": [
+                    ]
+                },
+                "S7": {
+                    "serviceName": "S7",
+                    "tags": [
+                    ]
+                },
+                "S8": {
+                    "serviceName": "S8",
+                    "tags": [
+                    ]
+                },
+                "S9": {
+                    "serviceName": "S9",
+                    "tags": [
+                    ]
+                }
+            },
+            "traceID": "A",
+            "spans": [
+                {
+                    "traceID": "A",
+                    "spanID": "A",
+                    "operationName": "O1",
+                    "references": [],
+                    "startTime": 0,
+                    "duration": 250,
+                    "processID": "S1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "B",
+                    "operationName": "O2",
+                    "startTime": 10,
+                    "duration": 100,
+                    "processID": "S2",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ],
+                    "tags": [
+                        {
+                            "key": "error",
+                            "type": "bool",
+                            "value": true
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "C",
+                    "operationName": "O3",
+                    "startTime": 30,
+                    "duration": 10,
+                    "processID": "S3",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "B"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "D",
+                    "operationName": "O4",
+                    "startTime": 50,
+                    "duration": 10,
+                    "processID": "S4",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "B"
+                        }
+                    ],
+                    "tags": [
+                        {
+                            "key": "error",
+                            "type": "string",
+                            "value": "ClientSideError"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "E",
+                    "operationName": "O5",
+                    "startTime": 70,
+                    "duration": 10,
+                    "processID": "S5",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "B"
+                        }
+                    ],
+                    "tags": [
+                        {
+                            "key": "error",
+                            "type": "string",
+                            "value": "ClientSideError"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "F",
+                    "operationName": "O6",
+                    "startTime": 120,
+                    "duration": 100,
+                    "processID": "S6",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 140,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "error"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "G",
+                    "operationName": "O7",
+                    "startTime": 140,
+                    "duration": 60,
+                    "processID": "S7",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "F"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "H",
+                    "operationName": "O8",
+                    "startTime": 150,
+                    "duration": 20,
+                    "processID": "S8",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "G"
+                        }
+                    ],
+                    "tags": [
+                        {
+                            "key": "error",
+                            "type": "string",
+                            "value": "ClientSideError"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "I",
+                    "operationName": "O9",
+                    "startTime": 180,
+                    "duration": 10,
+                    "processID": "S9",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "G"
+                        }
+                    ],
+                    "tags": [
+                        {
+                            "key": "error",
+                            "type": "string",
+                            "value": "ClientSideError"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "testing": {
+        "opTimeExclusive": {
+            "[S1] O1": 50,
+            "[S2] O2": 70,
+            "[S3] O3": 10,
+            "[S4] O4": 10,
+            "[S5] O5": 10,
+            "[S6] O6": 40,
+            "[S7] O7": 30,
+            "[S8] O8": 20,
+            "[S9] O9": 10
+        },
+        "noErrCP": {
+            "[S1] O1": 50
+        },
+        "totalWork": 570,
+        "timeSavedOnWork": 250,
+        "timeSavedOnCP": 200,
+        "errCPCallpathTimeExclusive": {
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S2] O2": 70,
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S2] O2->[S4] O4": 10,
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S2] O2->[S5] O5": 10,
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6": 40,
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6->[S7] O7->[S8] O8": 20,
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6->[S7] O7->[S9] O9": 10
+        },
+        "errCPErrCounts": {
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S2] O2": [0,1,0],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S2] O2->[S4] O4": [1,0,0],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S2] O2->[S5] O5": [1,0,0],
+            "errorCriticalPathSyntheticRoot->[S1] O1": [0,0,1],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6": [1,0,0],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6->[S7] O7": [0,0,1],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6->[S7] O7->[S8] O8": [1,0,0],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6->[S7] O7->[S9] O9": [1,0,0]
+        }
+    },
+    "total": 0,
+    "limit": 0,
+    "offset": 0,
+    "errors": null
+}

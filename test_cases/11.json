@@ -1,0 +1,77 @@
+{
+    "data": [
+        {
+            "processes": {
+                "S1": {
+                    "serviceName": "S1",
+                    "tags": [
+                    ]
+                },
+                "S2": {
+                    "serviceName": "S2",
+                    "tags": [
+                    ]
+                }
+            },
+            "traceID": "A",
+            "spans": [
+                {
+                    "traceID": "A",
+                    "spanID": "A",
+                    "operationName": "O1",
+                    "references": [],
+                    "startTime": 0,
+                    "duration": 100,
+                    "processID": "S1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "B",
+                    "operationName": "O2",
+                    "startTime": 30,
+                    "duration": 30,
+                    "processID": "S2",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ],
+                    "tags": [
+                        {
+                            "key": "error",
+                            "type": "bool",
+                            "value": true
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "testing": {
+        "opTimeExclusive": {
+            "[S1] O1": 70,
+            "[S2] O2": 30
+        },
+        "noErrCP": {
+            "[S1] O1": 70
+        },
+        "totalWork": 130,
+        "timeSavedOnWork": 30,
+        "timeSavedOnCP": 30,
+        "errCPCallpathTimeExclusive": {
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S2] O2": 30
+        },
+        "errCPErrCounts": {
+            "errorCriticalPathSyntheticRoot->[[S1] O1": [0,0,1],
+            "errorCriticalPathSyntheticRoot->[[S1] O1->[S2] O2": [1,0,0]
+        }
+    },
+    "total": 0,
+    "limit": 0,
+    "offset": 0,
+    "errors": null
+}

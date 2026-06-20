@@ -139,7 +139,7 @@ def aggregateCallPathProfiles(cpps):
     flameGraph = ""
     for k, v in cpp.profile.items():
         newKey = k.replace(";", "_").replace("->", ";")
-        flameGraph += newKey + " " + str(v.excl) + "\n"
+        flameGraph += newKey + " " + str(v.excl) + " <<" + str(v.freq) + ">>\n"
 
     return flameGraph
 

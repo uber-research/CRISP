@@ -6,7 +6,7 @@ py_test(
     size = "small",
     srcs = ["pytest_runner.py"],
     main = "pytest_runner.py",
-    data = glob(["tests/**"]) + ["pyproject.toml", "services.yaml"],
+    data = glob(["tests/**"]) + glob(["test_cases/**"]) + ["pyproject.toml", "services.yaml"],
     deps = [
         "//crisp:cli",
         "//crisp:common",
@@ -26,6 +26,8 @@ py_test(
         "//crisp:process_trace",
         "@pypi//boto3",
         "@pypi//botocore",
+        "@pypi//jinja2",
+        "@pypi//matplotlib",
         "@pypi//pytest",
         "@pypi//requests",
         "@pypi//ratelimit",
@@ -256,14 +258,27 @@ py_test(
     imports = ["."],
 )
 
+# ---------------------------------------------------------------------------
+# End-to-end integration tests
+# ---------------------------------------------------------------------------
+
 py_test(
-    name = "test_formatters",
-    srcs = ["tests/output/test_formatters.py"],
-    main = "tests/output/test_formatters.py",
+    name = "test_e2e",
+    size = "medium",
+    srcs = ["tests/test_e2e.py"],
+    data = glob(["test_cases/**"]),
     deps = [
-        "//crisp/output:output",
-        "//crisp/shared:shared",
+        "//crisp:flamegraph",
+        "//crisp:process_trace",
+        "//crisp/proto:proto",
+        "@pypi//jinja2",
+        "@pypi//matplotlib",
+        "@pypi//numpy",
         "@pypi//pandas",
+        "@pypi//pyyaml",
+        "@pypi//protobuf",
     ],
     imports = ["."],
+    env = {"MPLBACKEND": "Agg"},
 )
+

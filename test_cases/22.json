@@ -1,0 +1,119 @@
+{
+    "data": [
+        {
+            "processes": {
+                "S1": {
+                    "serviceName": "S1",
+                    "tags": [
+                    ]
+                },
+                "S2": {
+                    "serviceName": "S2",
+                    "tags": [ ]
+                }
+            },
+            "traceID": "A",
+            "spans": [
+                {
+                    "traceID": "A",
+                    "spanID": "A",
+                    "operationName": "O1",
+                    "references": [],
+                    "startTime": 0,
+                    "duration": 300,
+                    "processID": "S1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "B",
+                    "operationName": "O2",
+                    "startTime": 50,
+                    "duration":  50,
+                    "processID": "S2",
+                    "warnings": null,
+                    "tags": [
+                        {
+                            "key": "http.status_code",
+                            "type": "int64",
+                            "value": 404
+                        }
+                    ],
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "C",
+                    "operationName": "O2",
+                    "startTime": 150,
+                    "duration": 50,
+                    "processID": "S2",
+                    "warnings": null,
+                    "tags": [
+                        {
+                            "key": "http.status_code",
+                            "type": "int64",
+                            "value": 404
+                        }
+                    ],
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "D",
+                    "operationName": "O2",
+                    "startTime": 250,
+                    "duration": 50,
+                    "processID": "S2",
+                    "warnings": null,
+                    "tags": [
+                        {
+                            "key": "http.status_code",
+                            "type": "int64",
+                            "value": 504
+                        }
+                    ],
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ]
+                }
+            ]
+        }
+        ],
+    "testing": {
+        "opTimeExclusive": {
+            "[S1] O1": 150,
+            "[S2] O2": 150
+        },
+        "totalWork": 450,
+        "timeSavedOnWork": 150,
+        "timeSavedOnCP": 150,
+        "errCPCallpathTimeExclusive": {
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S2] O2": 150
+        },
+        "errCPErrCounts": {
+            "errorCriticalPathSyntheticRoot->[S1] O1": [0,0,1],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S2] O2": [3,0,0]
+        }
+    },
+    "total": 0,
+    "limit": 0,
+    "offset": 0,
+    "errors": null
+}

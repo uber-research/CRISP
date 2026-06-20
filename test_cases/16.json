@@ -1,0 +1,207 @@
+{
+    "data": [
+        {
+            "processes": {
+                "S1": {
+                    "serviceName": "S1",
+                    "tags": [
+                    ]
+                },
+                "S2": {
+                    "serviceName": "S2",
+                    "tags": [
+                    ]
+                },
+                "S3": {
+                    "serviceName": "S3",
+                    "tags": [
+                    ]
+                },
+                "S4": {
+                    "serviceName": "S4",
+                    "tags": [
+                    ]
+                },
+                "S5": {
+                    "serviceName": "S5",
+                    "tags": [
+                    ]
+                },
+                "S6": {
+                    "serviceName": "S6",
+                    "tags": [
+                    ]
+                },
+                "S7": {
+                    "serviceName": "S7",
+                    "tags": [
+                    ]
+                }
+            },
+            "traceID": "A",
+            "spans": [
+                {
+                    "traceID": "A",
+                    "spanID": "A",
+                    "operationName": "O1",
+                    "references": [],
+                    "startTime": 0,
+                    "duration": 110,
+                    "processID": "S1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "B",
+                    "operationName": "O2",
+                    "startTime": 10,
+                    "duration": 10,
+                    "processID": "S2",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "C",
+                    "operationName": "O3",
+                    "startTime": 15,
+                    "duration": 20,
+                    "processID": "S3",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "D",
+                    "operationName": "O4",
+                    "startTime": 30,
+                    "duration": 10,
+                    "processID": "S4",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ],
+                    "tags": [
+                        {
+                            "key": "error",
+                            "type": "bool",
+                            "value": true
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "E",
+                    "operationName": "O5",
+                    "startTime": 50,
+                    "duration": 10,
+                    "processID": "S5",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ],
+                    "tags": [
+                        {
+                            "key": "http.status_code",
+                            "type": "int64",
+                            "value": 400
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "F",
+                    "operationName": "O6",
+                    "startTime": 70,
+                    "duration": 30,
+                    "processID": "S6",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "A"
+                        }
+                    ]
+                },
+                {
+                    "traceID": "A",
+                    "spanID": "G",
+                    "operationName": "O7",
+                    "startTime": 80,
+                    "duration": 10,
+                    "processID": "S7",
+                    "warnings": null,
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "A",
+                            "spanID": "F"
+                        }
+                    ],
+                    "tags": [
+                        {
+                            "key": "grpc.status",
+                            "type": "string",
+                            "value": "NOT_FOUND"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "testing": {
+        "opTimeExclusive":{
+            "[S1] O1": 50,
+            "[S2] O2": 10,
+            "[S4] O4": 10,
+            "[S5] O5": 10,
+            "[S6] O6": 20,
+            "[S7] O7": 10
+        },
+        "noErrCP": {
+            "[S1] O1": 45,
+            "[S3] O3": 20,
+            "[S6] O6": 20
+        },
+        "totalWork": 200,
+        "timeSavedOnWork": 30,
+        "timeSavedOnCP": 25,
+        "errCPCallpathTimeExclusive": {
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S4] O4": 10,
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S5] O5": 10,
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6->[S7] O7": 10
+        },
+        "errCPErrCounts": {
+            "errorCriticalPathSyntheticRoot->[S1] O1": [0,0,1],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S4] O4": [1,0,0],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S5] O5": [1,0,0],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6": [0,0,1],
+            "errorCriticalPathSyntheticRoot->[S1] O1->[S6] O6->[S7] O7": [1,0,0]
+        }
+    },
+    "total": 0,
+    "limit": 0,
+    "offset": 0,
+    "errors": null
+}
