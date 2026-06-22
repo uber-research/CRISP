@@ -181,3 +181,14 @@ py_binary(
         "//crisp:process_trace",
     ],
 )
+
+py_library(
+    name = "server",
+    srcs = ["server.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crisp/proto:proto",
+        "//crisp/service:service",
+        "@pypi//fastapi",
+    ],
+)

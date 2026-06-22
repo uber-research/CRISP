@@ -39,6 +39,18 @@ dependencies = [
     "tenacity>=8.0",
 ]
 
+[project.optional-dependencies]
+server = [
+    "aiofiles>=23.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+dev = [
+    "anyio[trio]>=4.0",
+    "httpx>=0.27",
+    "pytest-asyncio>=0.23",
+]
+
 [project.urls]
 Homepage = "https://github.com/uber-research/CRISP"
 Issues = "https://github.com/uber-research/CRISP/issues"
@@ -52,3 +64,4 @@ crisp-trace = "crisp.process_trace:main"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from google.protobuf import duration_pb2 as google_dot_protobuf_dot_duration__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1a\x63risp/proto/analyzer.proto\x12\x0e\x63risp.analyzer\x1a\x1egoogle/protobuf/duration.proto\"`\n\x08\x43\x61llPath\x12\x0f\n\x07service\x18\x01 \x01(\t\x12\x16\n\x0eoperation_name\x18\x02 \x01(\t\x12+\n\texemplars\x18\x05 \x03(\x0b\x32\x18.crisp.analyzer.Exemplar\"-\n\x08\x45xemplar\x12\x10\n\x08trace_id\x18\x01 \x01(\t\x12\x0f\n\x07span_id\x18\x02 \x01(\t\"K\n\tPathStats\x12+\n\x08\x64uration\x18\x01 \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x11\n\tfrequency\x18\x02 \x01(\x05\"h\n\x10\x43\x61llChainSummary\x12+\n\tcall_path\x18\x01 \x03(\x0b\x32\x18.crisp.analyzer.CallPath\x12\'\n\x04\x62\x61se\x18\x04 \x01(\x0b\x32\x19.crisp.analyzer.PathStats\"L\n\x0f\x41nalyzeResponse\x12\x39\n\x0freport_window_1\x18\x01 \x03(\x0b\x32 .crisp.analyzer.CallChainSummaryB%\n\x12\x63om.crisp.analyzerB\rAnalyzerProtoP\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1a\x63risp/proto/analyzer.proto\x12\x0e\x63risp.analyzer\x1a\x1egoogle/protobuf/duration.proto\"`\n\x08\x43\x61llPath\x12\x0f\n\x07service\x18\x01 \x01(\t\x12\x16\n\x0eoperation_name\x18\x02 \x01(\t\x12+\n\texemplars\x18\x05 \x03(\x0b\x32\x18.crisp.analyzer.Exemplar\"-\n\x08\x45xemplar\x12\x10\n\x08trace_id\x18\x01 \x01(\t\x12\x0f\n\x07span_id\x18\x02 \x01(\t\"K\n\tPathStats\x12+\n\x08\x64uration\x18\x01 \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x11\n\tfrequency\x18\x02 \x01(\x05\"\x91\x01\n\x10\x43\x61llChainSummary\x12+\n\tcall_path\x18\x01 \x03(\x0b\x32\x18.crisp.analyzer.CallPath\x12\'\n\x04\x62\x61se\x18\x04 \x01(\x0b\x32\x19.crisp.analyzer.PathStats\x12\'\n\x04\x64iff\x18\x05 \x01(\x0b\x32\x19.crisp.analyzer.PathStats\"\xc5\x01\n\x0f\x41nalyzeResponse\x12\x39\n\x0freport_window_1\x18\x01 \x03(\x0b\x32 .crisp.analyzer.CallChainSummary\x12\x39\n\x0freport_window_2\x18\x02 \x03(\x0b\x32 .crisp.analyzer.CallChainSummary\x12<\n\x12report_window_diff\x18\x03 \x03(\x0b\x32 .crisp.analyzer.CallChainSummary\">\n\x0eStreamMetadata\x12\x14\n\x0cservice_name\x18\x01 \x01(\t\x12\x16\n\x0eoperation_name\x18\x02 \x01(\t\"P\n\x0c\x41nalysisData\x12\x12\n\ntrace_json\x18\x01 \x01(\x0c\x12,\n\x04type\x18\x02 \x01(\x0e\x32\x1e.crisp.analyzer.ComparisonType\"|\n\x0e\x41nalyzeRequest\x12\x32\n\x08metadata\x18\x01 \x01(\x0b\x32\x1e.crisp.analyzer.StreamMetadataH\x00\x12.\n\x06traces\x18\x02 \x01(\x0b\x32\x1c.crisp.analyzer.AnalysisDataH\x00\x42\x06\n\x04\x64\x61ta*O\n\x0e\x43omparisonType\x12\x1f\n\x1b\x43OMPARISON_TYPE_UNSPECIFIED\x10\x00\x12\x0c\n\x08\x42\x41SELINE\x10\x01\x12\x0e\n\nCOMPARISON\x10\x02\x42%\n\x12\x63om.crisp.analyzerB\rAnalyzerProtoP\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,14 +33,22 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'crisp.proto.analyzer_pb2', 
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\022com.crisp.analyzerB\rAnalyzerProtoP\001'
+  _globals['_COMPARISONTYPE']._serialized_start=920
+  _globals['_COMPARISONTYPE']._serialized_end=999
   _globals['_CALLPATH']._serialized_start=78
   _globals['_CALLPATH']._serialized_end=174
   _globals['_EXEMPLAR']._serialized_start=176
   _globals['_EXEMPLAR']._serialized_end=221
   _globals['_PATHSTATS']._serialized_start=223
   _globals['_PATHSTATS']._serialized_end=298
-  _globals['_CALLCHAINSUMMARY']._serialized_start=300
-  _globals['_CALLCHAINSUMMARY']._serialized_end=404
-  _globals['_ANALYZERESPONSE']._serialized_start=406
-  _globals['_ANALYZERESPONSE']._serialized_end=482
+  _globals['_CALLCHAINSUMMARY']._serialized_start=301
+  _globals['_CALLCHAINSUMMARY']._serialized_end=446
+  _globals['_ANALYZERESPONSE']._serialized_start=449
+  _globals['_ANALYZERESPONSE']._serialized_end=646
+  _globals['_STREAMMETADATA']._serialized_start=648
+  _globals['_STREAMMETADATA']._serialized_end=710
+  _globals['_ANALYSISDATA']._serialized_start=712
+  _globals['_ANALYSISDATA']._serialized_end=792
+  _globals['_ANALYZEREQUEST']._serialized_start=794
+  _globals['_ANALYZEREQUEST']._serialized_end=918
 # @@protoc_insertion_point(module_scope)

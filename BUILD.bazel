@@ -24,11 +24,19 @@ py_test(
         "//crisp:get_trace",
         "//crisp:exceptions",
         "//crisp:process_trace",
+        "//crisp:server",
+        "//crisp/service:service",
+        "@pypi//aiofiles",
+        "@pypi//anyio",
         "@pypi//boto3",
         "@pypi//botocore",
+        "@pypi//fastapi",
+        "@pypi//httpx",
         "@pypi//jinja2",
         "@pypi//matplotlib",
+        "@pypi//protobuf",
         "@pypi//pytest",
+        "@pypi//pytest_asyncio",
         "@pypi//requests",
         "@pypi//ratelimit",
         "@pypi//tenacity",
@@ -277,6 +285,107 @@ py_test(
         "@pypi//pandas",
         "@pypi//pyyaml",
         "@pypi//protobuf",
+    ],
+    imports = ["."],
+    env = {"MPLBACKEND": "Agg"},
+)
+
+# ---------------------------------------------------------------------------
+# HTTP service tests
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# HTTP service tests
+# ---------------------------------------------------------------------------
+
+py_test(
+    name = "test_service_cct_parser",
+    srcs = ["tests/service/test_cct_parser.py"],
+    main = "tests/service/test_cct_parser.py",
+    deps = [
+        "//crisp/proto:proto",
+        "//crisp/service:service",
+        "@pypi//aiofiles",
+        "@pypi//pytest",
+        "@pypi//pytest_asyncio",
+    ],
+    imports = ["."],
+    env = {"MPLBACKEND": "Agg"},
+)
+
+py_test(
+    name = "test_service_file_io",
+    srcs = ["tests/service/test_file_io.py"],
+    main = "tests/service/test_file_io.py",
+    deps = [
+        "//crisp/service:service",
+        "@pypi//pytest",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_service_trace_processor",
+    srcs = ["tests/service/test_trace_processor.py"],
+    main = "tests/service/test_trace_processor.py",
+    deps = [
+        "//crisp/proto:proto",
+        "//crisp/service:service",
+        "@pypi//pytest",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_service_streaming",
+    srcs = ["tests/service/test_streaming.py"],
+    main = "tests/service/test_streaming.py",
+    deps = [
+        "//crisp:process_trace",
+        "//crisp/proto:proto",
+        "//crisp/service:service",
+        "@pypi//pytest",
+        "@pypi//pytest_asyncio",
+    ],
+    imports = ["."],
+    env = {"MPLBACKEND": "Agg"},
+)
+
+py_test(
+    name = "test_server",
+    srcs = ["tests/test_server.py"],
+    deps = [
+        "//crisp:server",
+        "//crisp/proto:proto",
+        "//crisp/service:service",
+        "@pypi//fastapi",
+        "@pypi//httpx",
+        "@pypi//pytest",
+    ],
+    imports = ["."],
+    env = {"MPLBACKEND": "Agg"},
+)
+
+py_test(
+    name = "test_e2e_server",
+    size = "medium",
+    srcs = ["tests/test_e2e_server.py"],
+    data = glob(["test_cases/**"]),
+    deps = [
+        "//crisp:server",
+        "//crisp/proto:proto",
+        "//crisp/service:service",
+        "@pypi//anyio",
+        "@pypi//fastapi",
+        "@pypi//httpx",
+        "@pypi//jinja2",
+        "@pypi//matplotlib",
+        "@pypi//numpy",
+        "@pypi//pandas",
+        "@pypi//protobuf",
+        "@pypi//pytest",
+        "@pypi//pytest_asyncio",
+        "@pypi//pyyaml",
     ],
     imports = ["."],
     env = {"MPLBACKEND": "Agg"},
