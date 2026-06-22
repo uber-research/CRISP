@@ -22,6 +22,12 @@ The original paper: **[CRISP: Critical Path Analysis of Large-Scale Microservice
 > **Coming soon** — the `crisp-trace` PyPI package is not yet published.
 > Install from source in the meantime (see [Development](#development)).
 
+To also run the HTTP streaming service, install the optional `[server]` extras:
+
+```bash
+pip install -e ".[server]"   # adds fastapi, uvicorn[standard], aiofiles, httpx
+```
+
 ---
 
 ## Quick start
@@ -129,6 +135,37 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 
 ---
 
+## HTTP service
+
+CRISP ships an optional [FastAPI](https://fastapi.tiangolo.com/) server that exposes the same critical-path analysis over HTTP with a streaming protobuf wire protocol, suitable for programmatic integration.
+
+### Starting the server
+
+```bash
+pip install -e ".[server]"
+uvicorn crisp.server:app --host 0.0.0.0 --port 8080
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness check — returns `{"status":"ok"}` |
+| `POST` | `/v2/trace/analysis/stream` | Analyze one window of traces; returns a streaming protobuf response |
+| `POST` | `/v2/trace/analysis/compare` | Analyze two windows and diff them; returns a streaming protobuf response |
+
+### Wire protocol
+
+Both `POST` endpoints accept a binary request body consisting of length-prefixed protobuf messages (`StreamAnalyzeRequest` / `CompareAnalyzeRequest` defined in [`crisp/proto/analyzer.proto`](crisp/proto/analyzer.proto)):
+
+```
+[varint length][StreamAnalyzeRequest bytes] [varint length][trace JSON bytes] ...
+```
+
+The response is a stream of length-prefixed `AnalyzeResponse` protobuf messages written as they become available.
+
+---
+
 ## Development
 
 ### Requirements
@@ -209,6 +246,8 @@ Third-party packages come from `requirements_lock.txt` via `rules_python` in `MO
 |---|---|
 | **Python 3.11** | `pip install -r requirements_lock.txt`, then [`scripts/ci-local.sh`](scripts/ci-local.sh) |
 | **Bazel** | `bazel test //...` (skipped if no `BUILD.bazel` files exist) |
+
+Unit tests for the HTTP service live in `tests/service/` and `tests/test_server.py`; end-to-end integration tests are in `tests/test_e2e_server.py`.
 
 ---
 
