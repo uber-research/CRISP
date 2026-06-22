@@ -28,12 +28,60 @@ message PathStats {
 }
 
 // CallChainSummary represents one call chain with its aggregated stats.
+// diff is populated only in compare responses (report_window_diff).
 message CallChainSummary {
     repeated CallPath call_path = 1;
     PathStats base = 4;
+    PathStats diff = 5;
 }
 
-// AnalyzeResponse returns call chain summaries for the analysis window.
+// AnalyzeResponse returns call chain summaries for one or two analysis windows.
+// report_window_2 and report_window_diff are only populated by the compare endpoint.
 message AnalyzeResponse {
     repeated CallChainSummary report_window_1 = 1;
+    repeated CallChainSummary report_window_2 = 2;
+    repeated CallChainSummary report_window_diff = 3;
+}
+
+// ─── Streaming request protocol ───────────────────────────────────────────────
+// The /v2/trace/analysis/stream and /v2/trace/analysis/compare endpoints accept
+// a length-prefixed binary stream of AnalyzeRequest messages.
+//
+// Wire format (per message):
+//   [varint: byte-length of the serialised AnalyzeRequest]
+//   [bytes:  serialised AnalyzeRequest protobuf]
+//
+// The first message in the stream MUST contain a StreamMetadata oneof.
+// All subsequent messages MUST contain AnalysisData oneofs.
+
+// ComparisonType distinguishes baseline from comparison window traces.
+// Only used by the /compare endpoint; ignored by /stream.
+enum ComparisonType {
+    COMPARISON_TYPE_UNSPECIFIED = 0;
+    BASELINE = 1;
+    COMPARISON = 2;
+}
+
+// StreamMetadata is sent once at the start of the stream and identifies the
+// service and operation being analysed.
+message StreamMetadata {
+    string service_name = 1;
+    string operation_name = 2;
+}
+
+// AnalysisData carries one Jaeger trace in the standard HTTP API JSON format
+// (the same JSON a call to GET /api/traces/{id} returns).
+message AnalysisData {
+    // Raw bytes of a single Jaeger HTTP API trace JSON
+    // ({"data":[{"traceID":…,"spans":[…],"processes":{…}}]}).
+    bytes trace_json = 1;
+    ComparisonType type = 2;
+}
+
+// AnalyzeRequest is the per-message envelope sent by the client.
+message AnalyzeRequest {
+    oneof data {
+        StreamMetadata metadata = 1;
+        AnalysisData traces = 2;
+    }
 }
