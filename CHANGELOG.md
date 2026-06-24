@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [0.1.0] — 2026-06-19
+
 ### Added
 - Full critical-path analysis pipeline: error analysis helpers, flamegraph
   tag filters, and orchestration (`performCriticalPathAnalysis`,
@@ -16,21 +20,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Error CSV generators: `genPercentErrorFile`, `genSavingPotential`,
   `genErrStatsFiles`, `genMaxErrDepthPropToRootToNumTracesFiles`,
   `genSelfErrDepthToNumTracesFiles`.
-- Call-chain tree output (`_writeCCTOutputs`): writes `.cct` and `.dot` files.
+- Call-chain tree output (`_writeCCTOutputs`): writes `.cct`, `.dot`, and
+  `.pb` (Protocol Buffers) files.
+- Protobuf schema (`crisp/proto/analyzer.proto`) and generated bindings
+  (`analyzer_pb2.py`) for `CallPath`, `Exemplar`, `PathStats`,
+  `CallChainSummary`, and `AnalyzeResponse`.
 - Flamegraph tag filters: `GetFilteredMetrics`, `TagToStr`,
   `ProduceFlameGraphsForEachFilter`, `GetAllFlameGraphFiles`,
   `GetAllErrorFlameGraphFiles`, `genTagYAML`.
 - `pyproject.toml` runtime dependencies: `boto3`, `numpy`, `pandas`,
-  `python-dateutil`, `PyYAML`, `ratelimit`, `requests`, `tenacity`.
+  `protobuf`, `python-dateutil`, `PyYAML`, `ratelimit`, `requests`,
+  `tenacity`.
+- End-to-end integration tests (`tests/test_e2e.py`) covering 25 trace
+  fixtures and 4 error-pattern scenarios, including a protobuf/CCT parity
+  regression test.
+- GitHub Actions publish workflow (`.github/workflows/publish.yml`):
+  automatic build → TestPyPI → PyPI on `v*` tags using OIDC trusted
+  publishers (no API token required).
 
 ### Changed
 - `mergeCallChains`, `mergeExampleID`, `makeClickable`, `renameSortableIcon`
   are now imported from `crisp.metrics.aggregators` /
   `crisp.output.formatters` instead of being redefined in `process_trace.py`.
+- `main()` in `process_trace.py` returns an integer exit code (`0` on
+  success, `1` on failure) instead of `None`.
 
 ---
 
-## [0.1.0-dev] — initial release
+## [0.1.0-dev] — initial OSS snapshot
 
 CRISP (**C**ritical-path **I**nsights into **S**ervice **P**erformance) is a
 Python library and CLI tool for extracting and visualising the critical path
@@ -89,8 +106,6 @@ crisp/
 
 ### Known limitations
 
-- **Protobuf output** — `_writeCCTOutputs` writes `.cct` and `.dot` but not
-  `.pb`; protobuf serialization is deferred to a future release.
 - **Storage upload** — `storage.py` exposes the upload interface but the
   implementation is a stub; bring your own upload logic or use `tb_client.py`
   directly.
