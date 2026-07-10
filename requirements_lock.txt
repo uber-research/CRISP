@@ -93,6 +93,8 @@ pluggy==1.6.0
     # via pytest
 protobuf==7.35.1
     # via -r requirements.in
+psutil==7.2.2
+    # via -r requirements.in
 pydantic==2.13.4
     # via fastapi
 pydantic-core==2.46.4
