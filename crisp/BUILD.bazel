@@ -168,6 +168,7 @@ py_library(
         "//crisp/shared:shared",
         "@pypi//numpy",
         "@pypi//pandas",
+        "@pypi//psutil",
         "@pypi//pyyaml",
     ],
 )

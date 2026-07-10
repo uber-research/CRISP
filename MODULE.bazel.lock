@@ -403,7 +403,7 @@
         "usagesDigest": "bW0K8rtcOKhprT4m41L0QM8RyjxUZYMvAMydPv5WUB8=",
         "recordedFileInputs": {
           "@@rules_python~//tools/publish/requirements_linux.txt": "8175b4c8df50ae2f22d1706961884beeb54e7da27bd2447018314a175981997d",
-          "@@//requirements_lock.txt": "ee86b4510063ea1ea310f92d834e84b0edfd0815b89de2bc1c8b2f8973bd9ade",
+          "@@//requirements_lock.txt": "5265e9bd75139487e053fc7d399132418ce673fc09cc31956af08a5f0bb273cc",
           "@@rules_fuzzing~//fuzzing/requirements.txt": "ab04664be026b632a0d2a2446c4f65982b7654f5b6851d2f9d399a19b7242a5b",
           "@@rules_python~//tools/publish/requirements_windows.txt": "7673adc71dc1a81d3661b90924d7a7c0fc998cd508b3cb4174337cef3f2de556",
           "@@protobuf~//python/requirements.txt": "983be60d3cec4b319dcab6d48aeb3f5b2f7c3350f26b3a9e97486c37967c73c5",
@@ -833,6 +833,16 @@
               "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
               "repo": "pypi_311",
               "requirement": "protobuf==7.35.1"
+            }
+          },
+          "pypi_311_psutil": {
+            "bzlFile": "@@rules_python~//python/private/pypi:whl_library.bzl",
+            "ruleClassName": "whl_library",
+            "attributes": {
+              "dep_template": "@pypi//{name}:{target}",
+              "python_interpreter_target": "@@rules_python~~python~python_3_11_host//:python",
+              "repo": "pypi_311",
+              "requirement": "psutil==7.2.2"
             }
           },
           "pypi_311_pydantic": {
@@ -3642,6 +3652,7 @@
                 "pillow": "{\"pypi_311_pillow\":[{\"version\":\"3.11\"}]}",
                 "pluggy": "{\"pypi_311_pluggy\":[{\"version\":\"3.11\"}]}",
                 "protobuf": "{\"pypi_311_protobuf\":[{\"version\":\"3.11\"}]}",
+                "psutil": "{\"pypi_311_psutil\":[{\"version\":\"3.11\"}]}",
                 "pydantic": "{\"pypi_311_pydantic\":[{\"version\":\"3.11\"}]}",
                 "pydantic_core": "{\"pypi_311_pydantic_core\":[{\"version\":\"3.11\"}]}",
                 "pygments": "{\"pypi_311_pygments\":[{\"version\":\"3.11\"}]}",
@@ -3701,6 +3712,7 @@
                 "pillow",
                 "pluggy",
                 "protobuf",
+                "psutil",
                 "pydantic",
                 "pydantic_core",
                 "pygments",

@@ -35,6 +35,7 @@ py_test(
         "@pypi//jinja2",
         "@pypi//matplotlib",
         "@pypi//protobuf",
+        "@pypi//psutil",
         "@pypi//pytest",
         "@pypi//pytest_asyncio",
         "@pypi//requests",
@@ -135,7 +136,9 @@ py_test(
     srcs = ["tests/test_pipeline.py"],
     deps = [
         "//crisp:pipeline",
+        "//crisp:process_trace",
         "//crisp:common",
+        "@pypi//psutil",
     ],
     imports = ["."],
 )

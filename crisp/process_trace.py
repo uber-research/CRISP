@@ -12,6 +12,8 @@ from datetime import datetime
 from functools import partial, reduce
 from typing import Any
 
+import psutil
+
 import numpy as np
 import pandas as pd
 import yaml
@@ -651,9 +653,59 @@ def process(filename: str, config: common.Config) -> Any:
     return metrics
 
 
+# Trace-size constants used by mapReduce() to cap parallelism when individual
+# trace files are large enough to risk OOM.
+# Traces with 1M spans can be ~1 GB on disk and expand ~4x in memory as Python
+# objects.  Loading 16 such traces concurrently would require ~64 GB of RSS.
+_LARGE_TRACE_THRESHOLD_BYTES: int = 100 * 1024 * 1024   # 100 MB — trigger the guard
+_IN_MEMORY_EXPANSION: int = 4   # conservative JSON → Python object expansion factor
+_MEMORY_HEADROOM_FRACTION: float = 0.8   # use at most 80% of available memory
+
+
+def _memory_aware_workers(num_workers: int, trace_files: list[str]) -> int:
+    """Return a worker count capped so that peak RSS stays within available memory.
+
+    For each file that actually exists, we stat its size (one syscall per
+    file — negligible compared to json.load).  When the largest file exceeds
+    _LARGE_TRACE_THRESHOLD_BYTES we query psutil for the current available
+    memory and apply:
+
+        capped = max(1, int(available * headroom / (max_size * expansion)))
+
+    For small traces (below the threshold) we return num_workers unchanged,
+    so the normal code path has essentially zero overhead.
+    """
+    if num_workers <= 1 or not trace_files:
+        return num_workers
+
+    existing = [f for f in trace_files if os.path.exists(f)]
+    if not existing:
+        return num_workers
+
+    max_trace_bytes = max(os.path.getsize(f) for f in existing)
+    if max_trace_bytes <= _LARGE_TRACE_THRESHOLD_BYTES:
+        return num_workers
+
+    available_bytes = psutil.virtual_memory().available
+    capped = max(1, int(available_bytes * _MEMORY_HEADROOM_FRACTION / (max_trace_bytes * _IN_MEMORY_EXPANSION)))
+    if capped < num_workers:
+        logging.warning(
+            "Large traces detected (max %.2f GB, available %.2f GB); "
+            "reducing computeParallelism from %d to %d to avoid OOM",
+            max_trace_bytes / (1024 ** 3),
+            available_bytes / (1024 ** 3),
+            num_workers,
+            capped,
+        )
+        return capped
+    return num_workers
+
+
 def mapReduce(numWorkers: int, jaegerTraceFiles: list, config: common.Config) -> list:
     """Build graph + critical path for each trace file using a process pool."""
     process_fn = partial(process, config=config)
+    # Cap workers to avoid OOM when individual trace files are very large.
+    numWorkers = _memory_aware_workers(numWorkers, jaegerTraceFiles)
     with mp.Pool(numWorkers) as p:
         metrics = p.map(process_fn, jaegerTraceFiles)
     return metrics
