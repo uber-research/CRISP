@@ -258,6 +258,10 @@ Unit tests for the HTTP service live in `tests/service/` and `tests/test_server.
 
 Please cite our papers if you use the datasets in your research.
 
+## Related projects
+
+- **[Calligator](https://github.com/google/calligator)** — a critical-path analysis and resource-optimization tool for microservices that vendors CRISP (`third_party/CRISP`) for graph-based critical-path summaries and flamegraph generation, building trace retiming and resource-reallocation recommendations on top.
+
 ## Citation
 
 ```bibtex

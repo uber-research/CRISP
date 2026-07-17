@@ -24,6 +24,7 @@ py_test(
         "//crisp:get_trace",
         "//crisp:exceptions",
         "//crisp:process_trace",
+        "//crisp:dependency_graph",
         "//crisp:server",
         "//crisp/service:service",
         "@pypi//aiofiles",
@@ -139,6 +140,19 @@ py_test(
         "//crisp:process_trace",
         "//crisp:common",
         "@pypi//psutil",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_dependency_graph",
+    srcs = ["tests/test_dependency_graph.py"],
+    deps = [
+        "//crisp:dependency_graph",
+        "//crisp:graph",
+        "//crisp:configuration",
+        "//crisp/shared:shared",
+        "@pypi//pytest",
     ],
     imports = ["."],
 )
