@@ -1,7 +1,7 @@
-"""Single-trace dependency inference for critical path call trees.
+"""Single-trace and multi-trace dependency inference for critical path call trees.
 
 This module infers timing dependencies between sibling and parent/child
-spans of a single trace's :class:`~crisp.graph.Graph`.
+spans of a trace's :class:`~crisp.graph.Graph`.
 
 Nodes are keyed by :meth:`Graph.getCallPath`, the established call-path
 identity used throughout this codebase (see ``CallPathProfile``,
@@ -12,8 +12,27 @@ Sibling ordering is inferred with :meth:`Graph.happensBefore`, the same
 clock-skew-tolerant primitive the critical-path algorithm itself uses
 (see ``Graph.computeCriticalPath``).
 
-Cross-trace aggregation is out of scope for this module; it accumulates
-dependency information for exactly one :class:`Graph`.
+Two modes are supported:
+
+* :meth:`DependencyGraph.get_dependencies` accumulates dependency
+  information for exactly one :class:`Graph` (single trace).
+* :meth:`DependencyGraph.get_aggregate_dependencies` folds the single-trace
+  results of many :class:`Graph` instances (e.g. many traces of the same
+  endpoint) into one aggregate dependency dict, per call-path name.
+
+Aggregation of ``async_children``, ``child_dependents``, and the delay
+lists is a straightforward union/concatenation across traces. Aggregation
+of ``happens_before`` is subtler: it follows a "one counter-example
+permanently drops the edge" rule. A candidate call-path name is only
+recorded as happening before a node once it has been observed doing so
+*and never subsequently contradicted*. If some later trace has evidence
+that the same node and the same candidate call-path both occurred but the
+candidate did NOT happen before the node, the edge is dropped forever --
+even if a still-later trace goes on to re-observe the original confirming
+ordering. This intentionally biases towards precision (few false-positive
+edges) over recall. A trace that simply never observed a given call-path
+at all cannot contradict prior evidence about it (absence is not a
+counter-example).
 """
 
 from __future__ import annotations
@@ -68,10 +87,16 @@ class DependencyGraphNode:
 
 
 class DependencyGraph:
-    """Infers sibling/parent-child timing dependencies for a single trace's Graph."""
+    """Infers sibling/parent-child timing dependencies for one or many traces' Graphs."""
 
-    def __init__(self, graph: Graph):
-        self.deps: dict[str, DependencyGraphNode] = self.get_dependencies(graph)
+    def __init__(self, graph: Graph | None = None, graphs: list[Graph] | None = None):
+        if (graph is None) == (graphs is None):
+            raise ValueError("DependencyGraph requires exactly one of `graph` or `graphs`.")
+
+        if graph is not None:
+            self.deps: dict[str, DependencyGraphNode] = self.get_dependencies(graph)
+        else:
+            self.deps = self.get_aggregate_dependencies(graphs)
 
     @classmethod
     def _get_or_create(cls, deps: dict[str, DependencyGraphNode], name: str) -> DependencyGraphNode:
@@ -137,3 +162,79 @@ class DependencyGraph:
                         child_dep.happens_before.add(graph.getCallPath(candidate))
 
         return deps
+
+    @classmethod
+    def get_aggregate_dependencies(cls, graphs: list[Graph]) -> dict[str, DependencyGraphNode]:
+        """Fold single-trace dependencies from many traces into one aggregate dict.
+
+        Traces are processed in order, maintaining a running aggregate. See the
+        module docstring for the "one counter-example permanently drops the
+        edge" rule applied to ``happens_before``; ``async_children`` is a plain
+        union; ``child_dependents`` is a union that evicts any name observed as
+        async (in this trace or an earlier one); and the delay lists are
+        concatenated across all traces, in order.
+
+        Args:
+            graphs: the traces' Graphs to aggregate, in the order to process them.
+
+        Returns:
+            A dict mapping call-path name (Graph.getCallPath) to a fresh
+            aggregate DependencyGraphNode (never aliased to any per-trace node).
+        """
+        aggregate: dict[str, DependencyGraphNode] = {}
+        # Every call-path name ever proposed as a happens_before candidate for a
+        # given node_name, whether currently confirmed or previously rejected.
+        ever_proposed: dict[str, set[str]] = {}
+
+        for graph in graphs:
+            dependencies = cls.get_dependencies(graph)
+
+            for node_name, dependency in dependencies.items():
+                if node_name not in aggregate:
+                    agg_node = DependencyGraphNode(node_name)
+                    agg_node.happens_before = set(dependency.happens_before)
+                    ever_proposed[node_name] = set(dependency.happens_before)
+                    aggregate[node_name] = agg_node
+                else:
+                    agg_node = aggregate[node_name]
+                    seen = ever_proposed[node_name]
+                    new_happens_before: set[str] = set()
+
+                    for candidate in dependency.happens_before:
+                        if candidate in agg_node.happens_before:
+                            new_happens_before.add(candidate)
+                        elif candidate not in seen:
+                            new_happens_before.add(candidate)
+                            seen.add(candidate)
+                        # else: previously proposed but not currently confirmed --
+                        # a prior trace already contradicted it, so it must not
+                        # be resurrected even if this trace's evidence matches.
+
+                    for candidate in agg_node.happens_before:
+                        if candidate in dependency.happens_before:
+                            continue  # already handled above
+                        if candidate not in dependencies:
+                            # This trace never observed the candidate call-path at
+                            # all, so it can't contradict prior evidence about it.
+                            new_happens_before.add(candidate)
+                        # else: candidate was observed in this trace but not
+                        # confirmed as happens-before here -- a genuine
+                        # counter-example, so drop it.
+
+                    agg_node.happens_before = new_happens_before
+
+                # async_children: plain union. child_dependents: union, but a name
+                # must be evicted if it's async in this trace OR any earlier one.
+                async_before_this_trace = set(agg_node.async_children)
+                for name in dependency.child_dependents:
+                    if name not in async_before_this_trace:
+                        agg_node.child_dependents.add(name)
+
+                newly_async = dependency.async_children - agg_node.async_children
+                agg_node.async_children |= dependency.async_children
+                agg_node.child_dependents -= newly_async
+
+                agg_node.parent_start_delay.extend(dependency.parent_start_delay)
+                agg_node.parent_end_delay.extend(dependency.parent_end_delay)
+
+        return aggregate

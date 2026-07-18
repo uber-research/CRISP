@@ -263,6 +263,83 @@ def orphan_node_graph():
     return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "O1")
 
 
+# --- Fixtures used only by the multi-trace aggregation tests below. ---
+
+
+# A ([S1] O1) -> C ([S2] O3)
+#             -> D ([S2] O4)
+# A runs 0-300; C runs 0-80; D runs 200-280 -- same shape as
+# three_series_siblings_graph() but with the "B" call-path entirely absent, to
+# simulate a trace that never observed that call-path at all.
+def two_series_siblings_no_b_graph():
+    spans = [
+        _span("A", "O1", "S1", 0, 300),
+        _span("C", "O3", "S2", 0, 80, parent_id="A"),
+        _span("D", "O4", "S2", 200, 80, parent_id="A"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "O1")
+
+
+# A ([S1] O1) -> B ([S2] O2)
+#             -> D ([S2] O4)
+# A runs 0-300; B runs 0-80; D runs 200-280. B strictly finishes before D
+# starts, so this trace confirms "B happens-before D".
+def two_series_b_then_d_graph():
+    spans = [
+        _span("A", "O1", "S1", 0, 300),
+        _span("B", "O2", "S2", 0, 80, parent_id="A"),
+        _span("D", "O4", "S2", 200, 80, parent_id="A"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "O1")
+
+
+# A ([S1] O1) -> D ([S2] O4)
+#             -> B ([S2] O2)
+# Same two call-paths as two_series_b_then_d_graph(), but with the order
+# reversed (D runs 0-80, B runs 200-280) -- this trace contradicts
+# "B happens-before D".
+def two_series_d_then_b_graph():
+    spans = [
+        _span("A", "O1", "S1", 0, 300),
+        _span("D", "O4", "S2", 0, 80, parent_id="A"),
+        _span("B", "O2", "S2", 200, 80, parent_id="A"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "O1")
+
+
+# A ([S1] O1) -> B ([S2] O2), a single child whose timing is caller-supplied,
+# used to build several traces with distinct parent_start_delay/parent_end_delay
+# values for the delay-concatenation aggregation test.
+def single_child_with_delay_graph(child_start, child_duration):
+    spans = [
+        _span("A", "O1", "S1", 0, 100),
+        _span("B", "O2", "S2", child_start, child_duration, parent_id="A"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "O1")
+
+
+# A ([S1] O1) -> B1 ([S2] Ob), a single occurrence of fanout_same_callpath_graph()'s
+# fanout op (no second sibling at the same call-path). Used to contradict that
+# graph's self-referential happens_before edge for "[S1] O1->[S2] Ob".
+def single_ob_child_graph():
+    spans = [
+        _span("A", "O1", "S1", 0, 1000),
+        _span("B1", "Ob", "S2", 0, 400, parent_id="A"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "O1")
+
+
+# A ([S1] O1) -> Z ([S2] O9), a single child at a different op than
+# single_child_graph()'s B, at the same parent call-path. Used to confirm that
+# distinct call-paths observed in different traces both end up in the aggregate.
+def single_child_graph_alt_op():
+    spans = [
+        _span("A", "O1", "S1", 0, 100),
+        _span("Z", "O9", "S2", 10, 80, parent_id="A"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "O1")
+
+
 @pytest.fixture
 def restore_config():
     yield
@@ -544,3 +621,182 @@ def test_deps_keys_use_full_getcallpath_strings():
 def test_dependency_graph_node_repr_contains_name():
     node = DependencyGraphNode("[S1] O1")
     assert "[S1] O1" in repr(node)
+
+
+# --- Multi-trace aggregation (get_aggregate_dependencies / DependencyGraph(graphs=...)). ---
+
+
+def test_aggregate_happens_before_survives_when_two_traces_confirm_same_edge():
+    g1 = three_series_siblings_graph()
+    g2 = three_series_siblings_graph()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2])
+
+    name_b = "[S1] O1->[S2] O2"
+    name_c = "[S1] O1->[S2] O3"
+    name_d = "[S1] O1->[S2] O4"
+
+    assert agg[name_c].happens_before == {name_b}
+    assert agg[name_d].happens_before == {name_b, name_c}
+
+
+def test_aggregate_happens_before_dropped_by_genuine_counter_example():
+    # g1 confirms "B happens-before C"; g2 has both B and C present but runs
+    # them concurrently, contradicting that ordering.
+    g1 = three_series_siblings_graph()
+    g2 = parallel_siblings_graph()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2])
+
+    name_c = "[S1] O1->[S2] O3"
+    assert agg[name_c].happens_before == set()
+
+
+def test_aggregate_happens_before_survives_when_later_trace_omits_candidate_entirely():
+    # g2 never observed "B" at all (different call pattern), so it cannot
+    # contradict D's confirmed happens_before relationship with B from g1.
+    g1 = three_series_siblings_graph()
+    g2 = two_series_siblings_no_b_graph()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2])
+
+    name_b = "[S1] O1->[S2] O2"
+    name_c = "[S1] O1->[S2] O3"
+    name_d = "[S1] O1->[S2] O4"
+
+    assert agg[name_d].happens_before == {name_b, name_c}
+
+
+def test_aggregate_happens_before_rejection_is_permanent_across_three_traces():
+    # trace 1 confirms "B happens-before D"; trace 2 contradicts it (D runs
+    # first); trace 3 re-observes the exact same confirming pattern as trace 1
+    # -- the edge must remain dropped, never resurrected.
+    g1 = two_series_b_then_d_graph()
+    g2 = two_series_d_then_b_graph()
+    g3 = two_series_b_then_d_graph()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2, g3])
+
+    name_d = "[S1] O1->[S2] O4"
+    assert agg[name_d].happens_before == set()
+
+
+def test_aggregate_first_trace_non_confirmation_does_not_block_later_confirmation():
+    # g1 sees B and C concurrently (no order between them); since this is the
+    # *first* sighting of C, there is no prior confirmed evidence yet to
+    # contradict, so a later trace can still add a brand-new confirmed edge.
+    g1 = parallel_siblings_graph()
+    g2 = three_series_siblings_graph()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2])
+
+    name_b = "[S1] O1->[S2] O2"
+    name_c = "[S1] O1->[S2] O3"
+    assert agg[name_c].happens_before == {name_b}
+
+
+def test_aggregate_self_referential_happens_before_survives_confirmation():
+    # Fan-out self-edges (see test_fanout_same_callpath_shares_one_node_...)
+    # must follow the exact same aggregation rules as any other candidate name.
+    g1 = fanout_same_callpath_graph()
+    g2 = fanout_same_callpath_graph()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2])
+
+    name_b = "[S1] O1->[S2] Ob"
+    assert agg[name_b].happens_before == {name_b}
+
+
+def test_aggregate_self_referential_happens_before_dropped_by_counter_example():
+    # g2 has only a single occurrence of the fanout call-path, so it observes
+    # "Ob" without confirming Ob happens-before itself -- a genuine
+    # counter-example against the self-referential edge confirmed by g1.
+    g1 = fanout_same_callpath_graph()
+    g2 = single_ob_child_graph()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2])
+
+    name_b = "[S1] O1->[S2] Ob"
+    assert agg[name_b].happens_before == set()
+
+
+def test_aggregate_async_children_union_evicts_from_child_dependents():
+    # B is a plain (sync) child_dependent in g1, but async in g2 -- the
+    # aggregate must mark it async and evict it from child_dependents, even
+    # though an earlier trace had it there as a plain dependent.
+    g1 = single_child_graph()
+    g2 = async_child_graph()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2])
+
+    name_a, name_b = "[S1] O1", "[S1] O1->[S2] O2"
+    assert agg[name_a].async_children == {name_b}
+    assert name_b not in agg[name_a].child_dependents
+
+
+def test_aggregate_child_dependents_union_across_distinct_traces():
+    g1 = single_child_graph()
+    g2 = single_child_graph_alt_op()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2])
+
+    name_a = "[S1] O1"
+    name_b = "[S1] O1->[S2] O2"
+    name_z = "[S1] O1->[S2] O9"
+
+    assert name_b in agg
+    assert name_z in agg
+    assert agg[name_a].child_dependents == {name_b, name_z}
+
+
+def test_aggregate_delay_lists_concatenate_across_traces():
+    g1 = single_child_with_delay_graph(10, 80)
+    g2 = single_child_with_delay_graph(20, 70)
+    g3 = single_child_with_delay_graph(5, 90)
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2, g3])
+
+    name_a = "[S1] O1"
+    assert sorted(agg[name_a].parent_start_delay) == [5, 10, 20]
+    assert sorted(agg[name_a].parent_end_delay) == [5, 10, 10]
+
+
+def test_aggregate_new_node_first_seen_in_later_trace_is_not_aliased():
+    # "[S2] O2" only exists starting from g2; when first observed, its
+    # aggregate DependencyGraphNode must be a fresh object, not aliased to the
+    # per-trace one -- mutating the aggregate must not leak into a separately
+    # computed per-trace result.
+    g1 = leaf_only_graph()
+    g2 = single_child_graph()
+    agg = DependencyGraph.get_aggregate_dependencies([g1, g2])
+
+    name_b = "[S1] O1->[S2] O2"
+    per_trace_deps = DependencyGraph(g2).deps
+
+    assert name_b in agg
+    assert agg[name_b] is not per_trace_deps[name_b]
+
+    agg[name_b].happens_before.add("BOGUS")
+    agg[name_b].child_dependents.add("BOGUS")
+    agg[name_b].parent_start_delay.append(999)
+
+    assert "BOGUS" not in per_trace_deps[name_b].happens_before
+    assert "BOGUS" not in per_trace_deps[name_b].child_dependents
+    assert 999 not in per_trace_deps[name_b].parent_start_delay
+
+
+def test_aggregate_single_graph_list_matches_single_trace_mode():
+    g = three_series_siblings_graph()
+    via_single = DependencyGraph(g).deps
+    via_aggregate = DependencyGraph(graphs=[g]).deps
+
+    assert via_single.keys() == via_aggregate.keys()
+    for name in via_single:
+        assert via_single[name].happens_before == via_aggregate[name].happens_before
+        assert via_single[name].child_dependents == via_aggregate[name].child_dependents
+        assert via_single[name].async_children == via_aggregate[name].async_children
+        assert via_single[name].parent_start_delay == via_aggregate[name].parent_start_delay
+        assert via_single[name].parent_end_delay == via_aggregate[name].parent_end_delay
+
+
+def test_aggregate_constructor_requires_exactly_one_of_graph_or_graphs():
+    g = leaf_only_graph()
+
+    with pytest.raises(ValueError):
+        DependencyGraph()
+
+    with pytest.raises(ValueError):
+        DependencyGraph(graph=g, graphs=[g])
+
+    # existing positional single-graph call style must keep working unchanged.
+    assert DependencyGraph(g).deps.keys() == DependencyGraph.get_dependencies(g).keys()
