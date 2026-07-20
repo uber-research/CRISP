@@ -39,6 +39,7 @@ from crisp.configuration import (
 from crisp.utils.dict_utils import (
     accumulateInDict, getCPSize
 )
+from crisp.slack_drag import calculate_drag
 
 # Re-export for backward compatibility
 __all__ = ['Graph', 'accumulateInDict', 'bcolors', 'getCPSize']
@@ -1949,6 +1950,24 @@ class Graph:
         node = self._get_root_node(rootNode)
         res = self.computeCriticalPath(node)
         return res
+
+    def calculateDrag(self, cp=None, exclusive=False):
+        """Calculate drag for each node on a critical path.
+
+        See :func:`slack_drag.calculate_drag` for the definition of drag and
+        the inclusive/exclusive distinction.
+
+        Args:
+            cp: Optional critical path (as returned by findCriticalPath()) to
+                calculate drag for. If None, uses findCriticalPath() on this
+                Graph's own rootNode.
+            exclusive: Whether to calculate exclusive drag (discount the
+                portion already attributable to a node's own critical-path
+                child) instead of inclusive drag.
+        """
+        if cp is None:
+            cp = self.findCriticalPath()
+        return calculate_drag(self, cp, exclusive)
 
     def findErrorsOnCriticalPath(self, rootNode=None):
         """Find errors on the critical path starting from the given root node.

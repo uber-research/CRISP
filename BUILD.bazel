@@ -25,6 +25,7 @@ py_test(
         "//crisp:exceptions",
         "//crisp:process_trace",
         "//crisp:dependency_graph",
+        "//crisp:slack_drag",
         "//crisp:server",
         "//crisp/service:service",
         "@pypi//aiofiles",
@@ -151,6 +152,20 @@ py_test(
         "//crisp:dependency_graph",
         "//crisp:graph",
         "//crisp:configuration",
+        "//crisp/shared:shared",
+        "@pypi//pytest",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_slack_drag",
+    size = "small",
+    srcs = ["tests/test_slack_drag.py"],
+    data = glob(["test_cases/**"]),
+    deps = [
+        "//crisp:slack_drag",
+        "//crisp:graph",
         "//crisp/shared:shared",
         "@pypi//pytest",
     ],

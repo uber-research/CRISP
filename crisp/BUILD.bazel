@@ -56,7 +56,17 @@ py_library(
         ":configuration",
         ":constants",
         ":pkg",
+        ":slack_drag",
         "//crisp/shared:shared",
+        "//crisp/utils:utils",
+    ],
+)
+
+py_library(
+    name = "slack_drag",
+    srcs = ["slack_drag.py"],
+    visibility = ["//visibility:public"],
+    deps = [
         "//crisp/utils:utils",
     ],
 )
