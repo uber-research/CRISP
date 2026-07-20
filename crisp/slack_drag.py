@@ -100,7 +100,7 @@ def _exclusive_cp_time(cp: list[GraphNode]) -> dict[str, float]:
 
     for sid, value in exclusive_time.items():
         if value < 0:
-            exclusive_time[sid] = 0
+            exclusive_time[sid] = 0.0
 
     return exclusive_time
 
