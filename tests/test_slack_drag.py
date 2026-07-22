@@ -6,7 +6,14 @@ import pytest
 
 from crisp.graph import Graph, GraphNode
 from crisp.shared.models import SpanKind
-from crisp.slack_drag import Drag, calculate_drag, _exclusive_cp_time
+from crisp.dependency_graph import DependencyGraph
+from crisp.slack_drag import (
+    Drag,
+    Slack,
+    calculate_drag,
+    calculate_slack,
+    _exclusive_cp_time,
+)
 
 
 def _span(span_id, op, pid, start, duration, parent_id=None):
@@ -208,6 +215,93 @@ def branch_with_noncritical_sibling_graph():
         _span("B", "OB", "S2", 0, 50, parent_id="R"),
     ]
     return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "OR")
+
+
+# --- Fixtures for calculate_slack. ---
+
+
+# Same shape as sequential_siblings_with_slight_overlap_graph() (R -> A, B, C
+# chaining onto cp = [R, C, B, A]) plus a 4th sibling D that stays off the
+# critical path. D has a real happens_before dependency on A (A ends at 200,
+# well before D starts at 250), and its critical_end_time ceiling should come
+# from B's real endTime (400) via R.children -- not from whatever cp[i - 1]
+# happens to be when B is visited (see
+# test_naive_index_adjacency_would_misreport_chained_sibling_dependent_slack).
+def sequential_siblings_with_dependent_off_cp_sibling_graph():
+    spans = [
+        _span("R", "OR", "S1", 0, 1000),
+        _span("A", "OA", "S2", 0, 200, parent_id="R"),
+        _span("B", "OB", "S2", 195, 205, parent_id="R"),
+        _span("C", "OC", "S2", 500, 500, parent_id="R"),
+        _span("D", "OD", "S2", 250, 130, parent_id="R"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "OR")
+
+
+# R -> N (off cp, runs 400-520, overlaps TAIL's start by 2% -- past tolerance --
+# so never joins cp) and R -> TAIL (on cp, runs 500-1000, ends exactly when R
+# does). N is the earliest-starting sibling with no happens_before constraint, so
+# its earliest possible start is its own actual start (400) -- no banked slack.
+# Its critical_end_time is inherited from TAIL via R.children, and TAIL ends
+# exactly at R's endTime (1000), making this a tight boundary for the cross-check
+# in test_extending_leaf_by_exactly_its_slack_reaches_root_endtime_boundary.
+def leaf_slack_capped_by_root_endtime_via_sibling_graph():
+    spans = [
+        _span("R", "OR", "S1", 0, 1000),
+        _span("N", "ON", "S2", 400, 120, parent_id="R"),
+        _span("TAIL", "OT", "S2", 500, 500, parent_id="R"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "OR")
+
+
+# R -> P -> N, and R -> C. P runs 0-1000 (P.endTime == R.endTime exactly) with
+# its only child N running 10-800. C runs 900-1000, tied with P on endTime but
+# wins the tie-break (inserted after P; computeCriticalPath's stable sort favors
+# it), so P stays off cp: cp = [R, C]. N, as P's only child, has no competing
+# sibling, so its earliest possible start is trivially its own actual start (10).
+# Since N's parent (P) isn't a cp node, N's critical_end_time falls to the
+# "inherit my parent's own endTime" fallback -- and P's endTime happens to equal
+# R's (1000), giving a tight boundary bounded purely by "parent's endTime, no
+# competing sibling" (contrast with the sibling-gap-bounded fixture above).
+def leaf_slack_capped_by_root_endtime_via_nested_only_child_graph():
+    spans = [
+        _span("R", "OR", "S1", 0, 1000),
+        _span("P", "OP", "S2", 0, 1000, parent_id="R"),
+        _span("N", "ON", "S3", 10, 790, parent_id="P"),
+        _span("C", "OC", "S2", 900, 100, parent_id="R"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2", "S3": "S3"}, "S1", "OR")
+
+
+# R -> A (runs 0-100), R -> B (runs 300-750, depends on A), R -> D (runs
+# 700-1000, on cp as R's last-running child). B overlaps D's tail by 5% (past
+# tolerance), so B never joins cp. A's real happens_before predecessor
+# relationship with B (DependencyGraph checks all sibling pairs, not just
+# cp-adjacent ones) makes B's earliest possible start A's endTime (100), not the
+# naive "earliest of any sibling's start" fallback (which would be A's own
+# start, 0).
+def happens_before_chain_constrains_sibling_slack_graph():
+    spans = [
+        _span("R", "OR", "S1", 0, 1000),
+        _span("A", "OA", "S2", 0, 100, parent_id="R"),
+        _span("B", "OB", "S3", 300, 450, parent_id="R"),
+        _span("D", "OD", "S4", 700, 300, parent_id="R"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2", "S3": "S3", "S4": "S4"}, "S1", "OR")
+
+
+# P -> B1, B2 (two instances of the same call-path "Ob") and P -> C (on cp,
+# spans all of P, 0-1000). B1 runs 0-100; B2 runs 200-300 (off cp). Since B1 (an
+# earlier instance of "Ob") finishes before B2 starts, DependencyGraph records a
+# self-referential happens_before edge for "Ob" (see dependency_graph.py).
+def fanout_same_callpath_off_cp_graph():
+    spans = [
+        _span("P", "OP", "S1", 0, 1000),
+        _span("B1", "Ob", "S2", 0, 100, parent_id="P"),
+        _span("B2", "Ob", "S2", 200, 100, parent_id="P"),
+        _span("C", "Oc", "S3", 0, 1000, parent_id="P"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2", "S3": "S3"}, "S1", "OP")
 
 
 def _load_test_case(filename):
@@ -547,3 +641,328 @@ def test_drag_dataclass_is_frozen():
     drag = Drag(drag_per_span={"A": 1.0}, total_drag=1.0)
     with pytest.raises(AttributeError):
         drag.total_drag = 2.0
+
+
+# ============================================================================
+# calculate_slack tests.
+# ============================================================================
+
+
+# --- Every critical-path node has zero slack. ---
+
+
+def test_every_critical_path_node_has_zero_slack_on_a_linear_chain():
+    g = linear_chain_graph()
+    cp = g.findCriticalPath()
+    slack = calculate_slack(g, cp)
+
+    for node in cp:
+        assert slack.slack_per_span[node.sid] == 0
+
+
+def test_every_critical_path_node_has_zero_slack_on_a_branching_graph():
+    g = sequential_siblings_with_slight_overlap_graph()
+    cp = g.findCriticalPath()
+    assert [n.sid for n in cp] == ["R", "C", "B", "A"]
+
+    slack = calculate_slack(g, cp)
+
+    for node in cp:
+        assert slack.slack_per_span[node.sid] == 0
+
+
+# --- The rigorous "slack is a tight boundary" cross-check. ---
+
+
+def test_extending_leaf_by_exactly_its_slack_reaches_but_never_exceeds_root_endtime_via_sibling_gap():
+    g = leaf_slack_capped_by_root_endtime_via_sibling_graph()
+    cp = g.findCriticalPath()
+    assert [n.sid for n in cp] == ["R", "TAIL"]
+
+    slack = calculate_slack(g, cp)
+    n_node = g.nodeHT["N"]
+    assert n_node.children == {}
+    assert slack.slack_per_span["N"] > 0
+    root_end_time = g.rootNode.endTime
+
+    n_node.duration += slack.slack_per_span["N"]
+    n_node.endTime = n_node.startTime + n_node.duration
+    assert n_node.endTime <= root_end_time
+
+
+def test_extending_leaf_by_one_more_than_its_slack_exceeds_root_endtime_via_sibling_gap():
+    g = leaf_slack_capped_by_root_endtime_via_sibling_graph()
+    cp = g.findCriticalPath()
+    slack = calculate_slack(g, cp)
+    n_node = g.nodeHT["N"]
+    root_end_time = g.rootNode.endTime
+
+    n_node.duration += slack.slack_per_span["N"] + 1
+    n_node.endTime = n_node.startTime + n_node.duration
+    assert n_node.endTime > root_end_time
+
+
+def test_extending_leaf_by_exactly_its_slack_reaches_but_never_exceeds_root_endtime_via_nested_only_child():
+    g = leaf_slack_capped_by_root_endtime_via_nested_only_child_graph()
+    cp = g.findCriticalPath()
+    assert [n.sid for n in cp] == ["R", "C"]
+
+    slack = calculate_slack(g, cp)
+    n_node = g.nodeHT["N"]
+    assert n_node.children == {}
+    assert len(n_node.parent.children) == 1  # no competing sibling at N's own level.
+    assert slack.slack_per_span["N"] > 0
+    root_end_time = g.rootNode.endTime
+
+    n_node.duration += slack.slack_per_span["N"]
+    n_node.endTime = n_node.startTime + n_node.duration
+    assert n_node.endTime <= root_end_time
+
+
+def test_extending_leaf_by_one_more_than_its_slack_exceeds_root_endtime_via_nested_only_child():
+    g = leaf_slack_capped_by_root_endtime_via_nested_only_child_graph()
+    cp = g.findCriticalPath()
+    slack = calculate_slack(g, cp)
+    n_node = g.nodeHT["N"]
+    root_end_time = g.rootNode.endTime
+
+    n_node.duration += slack.slack_per_span["N"] + 1
+    n_node.endTime = n_node.startTime + n_node.duration
+    assert n_node.endTime > root_end_time
+
+
+# --- happens_before chain constrains a sibling's slack. ---
+
+
+def test_happens_before_chain_constrains_sibling_slack_tighter_than_naive_sibling_gap():
+    g = happens_before_chain_constrains_sibling_slack_graph()
+    cp = g.findCriticalPath()
+
+    # B overlaps D's start by 5% (past tolerance), so it never joins cp -- it's
+    # the one node whose slack we're testing.
+    assert "B" not in [n.sid for n in cp]
+
+    dep = DependencyGraph(graph=g)
+    b_name = g.getCallPath(g.nodeHT["B"])
+    a_name = g.getCallPath(g.nodeHT["A"])
+    assert dep.deps[b_name].happens_before == {a_name}
+
+    slack = calculate_slack(g, cp, dep)
+
+    a_node = g.nodeHT["A"]
+    # B's earliest possible start is A's real endTime (100), not the naive
+    # "earliest of any sibling's start" fallback (which would use A's start, 0).
+    assert slack.slack_per_span["B"] == 450
+
+    naive_slack_ignoring_happens_before = slack.slack_per_span["B"] + (a_node.endTime - a_node.startTime)
+    assert naive_slack_ignoring_happens_before == 550
+    assert slack.slack_per_span["B"] != naive_slack_ignoring_happens_before
+
+
+# --- Same-call-path fanout: self-referential happens_before. ---
+
+
+def test_fanout_same_callpath_second_instance_uses_real_predecessor_span_not_bare_name_match():
+    g = fanout_same_callpath_off_cp_graph()
+    cp = g.findCriticalPath()
+    assert [n.sid for n in cp] == ["P", "C"]
+
+    dep = DependencyGraph(graph=g)
+    ob_name = g.getCallPath(g.nodeHT["B1"])
+    assert g.getCallPath(g.nodeHT["B2"]) == ob_name
+    # Self-referential edge: an earlier instance of the same call-path ("Ob")
+    # is recorded as happening before it.
+    assert dep.deps[ob_name].happens_before == {ob_name}
+
+    slack = calculate_slack(g, cp, dep)
+
+    # B1 is the earlier instance: nothing precedes it, so it falls back to the
+    # "earliest sibling start" rule -- it never spuriously matches itself, since
+    # the search breaks at B1's own span id before comparing against itself.
+    assert slack.slack_per_span["B1"] == 900
+
+    # B2's earliest possible start correctly uses B1's real endTime (100), not
+    # a bare name-membership match against its own call-path name.
+    assert slack.slack_per_span["B2"] == 800
+    assert slack.slack_per_span["B2"] != slack.slack_per_span["B1"]
+
+
+# --- Regression: node.parent/node.children, never cp list-adjacency. ---
+
+
+def test_naive_index_adjacency_would_misreport_chained_sibling_dependent_slack():
+    g = sequential_siblings_with_dependent_off_cp_sibling_graph()
+    cp = g.findCriticalPath()
+
+    # Same chained-sibling shape as the drag regression fixture, plus a 4th
+    # off-cp sibling D with a real happens_before dependency on A.
+    assert [n.sid for n in cp] == ["R", "C", "B", "A"]
+    d_node = g.nodeHT["D"]
+    assert d_node.sid not in [n.sid for n in cp]
+
+    dep = DependencyGraph(graph=g)
+    d_name = g.getCallPath(d_node)
+    a_name = g.getCallPath(g.nodeHT["A"])
+    assert dep.deps[d_name].happens_before == {a_name}
+
+    slack = calculate_slack(g, cp, dep)
+
+    # The naive (buggy) computation: a cp[i - 1]-based "parent" for B would be
+    # the leaf C, so D never gets updated via B's inheritance step, leaving
+    # D's critical_end_time at R's (coincidentally correct for C, but not B): 1000.
+    naive_critical_end_time_for_d = g.rootNode.endTime
+    naive_latest_start = naive_critical_end_time_for_d - d_node.duration
+    a_node = g.nodeHT["A"]
+    earliest_start_for_d = a_node.endTime  # unaffected by the cp-adjacency bug.
+    naive_slack = naive_latest_start - earliest_start_for_d
+    assert naive_slack == 670
+
+    # The correct computation, using D's real parent (R) and real siblings,
+    # finds B's real endTime (400) -- not C's (1000) -- as D's tightest cap.
+    assert slack.slack_per_span["D"] == 70
+    assert slack.slack_per_span["D"] != naive_slack
+
+
+# --- Default dependency_graph=None builds one internally. ---
+
+
+def test_default_dependency_graph_matches_explicit_prebuilt_one():
+    g = sequential_siblings_with_slight_overlap_graph()
+    cp = g.findCriticalPath()
+
+    via_default = calculate_slack(g, cp)
+    via_explicit = calculate_slack(g, cp, dependency_graph=DependencyGraph(graph=g))
+
+    assert via_default.slack_per_span == via_explicit.slack_per_span
+    assert via_default.total_slack == via_explicit.total_slack
+
+
+# --- Accepts a multi-trace aggregate DependencyGraph. ---
+
+
+def test_accepts_multi_trace_aggregate_dependency_graph_without_erroring():
+    g = sequential_siblings_with_slight_overlap_graph()
+    cp = g.findCriticalPath()
+    aggregate = DependencyGraph(graphs=[g, g])
+
+    slack = calculate_slack(g, cp, dependency_graph=aggregate)
+
+    assert set(slack.slack_per_span.keys()) == set(g.nodeHT.keys())
+    for node in cp:
+        assert slack.slack_per_span[node.sid] == 0
+    assert slack.total_slack == sum(slack.slack_per_span.values())
+
+
+# --- Root node slack. ---
+
+
+def test_root_node_always_has_zero_slack():
+    for fixture in (
+        linear_chain_graph,
+        sequential_siblings_with_slight_overlap_graph,
+        branch_with_noncritical_sibling_graph,
+    ):
+        g = fixture()
+        cp = g.findCriticalPath()
+        slack = calculate_slack(g, cp)
+        assert slack.slack_per_span[g.rootNode.sid] == 0
+
+
+# --- total_slack correctness. ---
+
+
+def test_total_slack_equals_sum_of_slack_per_span_values():
+    g = happens_before_chain_constrains_sibling_slack_graph()
+    cp = g.findCriticalPath()
+    slack = calculate_slack(g, cp)
+
+    assert slack.total_slack == sum(slack.slack_per_span.values())
+
+
+# --- slack_per_span covers every node (contrast with Drag's key-omission). ---
+
+
+def test_non_critical_path_node_is_present_in_slack_per_span_unlike_drag():
+    g = branch_with_noncritical_sibling_graph()
+    cp = g.findCriticalPath()
+    assert [n.sid for n in cp] == ["R", "A"]
+
+    slack = calculate_slack(g, cp)
+
+    # Unlike Drag.drag_per_span (which omits "B" entirely -- see
+    # test_non_critical_path_node_is_omitted_from_drag_per_span above), "B" IS
+    # a key here, with a real, non-negative value.
+    assert "B" in slack.slack_per_span
+    assert slack.slack_per_span["B"] >= 0
+    assert slack.slack_per_span["B"] == 350
+
+    # Every node in nodeHT gets a slack_per_span entry, not just cp members.
+    assert set(slack.slack_per_span.keys()) == set(g.nodeHT.keys())
+
+
+# --- Graph.calculateSlack() hook. ---
+
+
+def test_graph_calculate_slack_hook_matches_direct_module_call():
+    g = happens_before_chain_constrains_sibling_slack_graph()
+    cp = g.findCriticalPath()
+    dep = DependencyGraph(graph=g)
+
+    via_hook = g.calculateSlack(cp, dependency_graph=dep)
+    via_module = calculate_slack(g, cp, dep)
+
+    assert via_hook.slack_per_span == via_module.slack_per_span
+    assert via_hook.total_slack == via_module.total_slack
+
+
+def test_graph_calculate_slack_hook_defaults_cp_and_dependency_graph():
+    g = happens_before_chain_constrains_sibling_slack_graph()
+
+    via_default = g.calculateSlack()
+    via_explicit = calculate_slack(g, g.findCriticalPath())
+
+    assert via_default.slack_per_span == via_explicit.slack_per_span
+    assert via_default.total_slack == via_explicit.total_slack
+    # Sanity: this isn't just two empty dicts matching each other.
+    assert via_default.slack_per_span
+
+
+# --- Realistic fixtures from test_cases/*.json. ---
+
+
+def test_realistic_fixtures_every_node_has_nonnegative_slack_and_cp_nodes_are_zero():
+    for filename in ("1.json", "5.json"):
+        g = _load_test_case(filename)
+        assert g.rootNode is not None
+        cp = g.findCriticalPath()
+
+        slack = calculate_slack(g, cp)
+
+        assert set(slack.slack_per_span.keys()) == set(g.nodeHT.keys())
+        for sid, value in slack.slack_per_span.items():
+            assert value >= 0, f"expected non-negative slack for {sid}, got {value}"
+
+        for node in cp:
+            assert slack.slack_per_span[node.sid] == 0
+
+
+# --- General API contract sanity. ---
+
+
+def test_calculate_slack_is_pure_and_deterministic():
+    g = sequential_siblings_with_slight_overlap_graph()
+    cp = g.findCriticalPath()
+    durations_before = {sid: node.duration for sid, node in g.nodeHT.items()}
+
+    first = calculate_slack(g, cp)
+    second = calculate_slack(g, cp)
+
+    assert first.slack_per_span == second.slack_per_span
+    assert first.total_slack == second.total_slack
+    assert {sid: node.duration for sid, node in g.nodeHT.items()} == durations_before
+
+
+def test_slack_dataclass_is_frozen():
+    slack = Slack(slack_per_span={"A": 1.0}, total_slack=1.0)
+    with pytest.raises(AttributeError):
+        slack.total_slack = 2.0

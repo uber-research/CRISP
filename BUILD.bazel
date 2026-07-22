@@ -166,6 +166,7 @@ py_test(
     deps = [
         "//crisp:slack_drag",
         "//crisp:graph",
+        "//crisp:dependency_graph",
         "//crisp/shared:shared",
         "@pypi//pytest",
     ],

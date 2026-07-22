@@ -39,7 +39,7 @@ from crisp.configuration import (
 from crisp.utils.dict_utils import (
     accumulateInDict, getCPSize
 )
-from crisp.slack_drag import calculate_drag
+from crisp.slack_drag import calculate_drag, calculate_slack
 
 # Re-export for backward compatibility
 __all__ = ['Graph', 'accumulateInDict', 'bcolors', 'getCPSize']
@@ -1968,6 +1968,24 @@ class Graph:
         if cp is None:
             cp = self.findCriticalPath()
         return calculate_drag(self, cp, exclusive)
+
+    def calculateSlack(self, cp=None, dependency_graph=None):
+        """Calculate slack for every node in this Graph.
+
+        See :func:`slack_drag.calculate_slack` for the definition of slack
+        and its "every node gets an entry" contract.
+
+        Args:
+            cp: Optional critical path (as returned by findCriticalPath()) to
+                calculate slack against. If None, uses findCriticalPath() on
+                this Graph's own rootNode.
+            dependency_graph: Optional pre-built DependencyGraph. If None,
+                calculate_slack builds one internally via
+                DependencyGraph(graph=self).
+        """
+        if cp is None:
+            cp = self.findCriticalPath()
+        return calculate_slack(self, cp, dependency_graph)
 
     def findErrorsOnCriticalPath(self, rootNode=None):
         """Find errors on the critical path starting from the given root node.

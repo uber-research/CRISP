@@ -67,6 +67,7 @@ py_library(
     srcs = ["slack_drag.py"],
     visibility = ["//visibility:public"],
     deps = [
+        ":dependency_graph",
         "//crisp/utils:utils",
     ],
 )
@@ -75,9 +76,12 @@ py_library(
     name = "dependency_graph",
     srcs = ["dependency_graph.py"],
     visibility = ["//visibility:public"],
-    deps = [
-        ":graph",
-    ],
+    # NOTE: dependency_graph.py only references Graph under `if TYPE_CHECKING:`
+    # (with `from __future__ import annotations`, so the annotation is never
+    # evaluated at runtime) -- it has no real runtime dependency on `:graph`.
+    # A `:graph` dep here would create a Bazel-level cycle now that `slack_drag`
+    # (a real dependency of `:graph`) also depends on `:dependency_graph`.
+    deps = [],
 )
 
 py_library(
