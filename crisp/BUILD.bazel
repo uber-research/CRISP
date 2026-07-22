@@ -55,7 +55,9 @@ py_library(
         ":common",
         ":configuration",
         ":constants",
+        ":dependency_graph",
         ":pkg",
+        ":retimer",
         ":slack_drag",
         "//crisp/shared:shared",
         "//crisp/utils:utils",
@@ -81,6 +83,18 @@ py_library(
     # evaluated at runtime) -- it has no real runtime dependency on `:graph`.
     # A `:graph` dep here would create a Bazel-level cycle now that `slack_drag`
     # (a real dependency of `:graph`) also depends on `:dependency_graph`.
+    deps = [],
+)
+
+py_library(
+    name = "retimer",
+    srcs = ["retimer.py"],
+    visibility = ["//visibility:public"],
+    # NOTE: like dependency_graph.py, retimer.py only references DependencyGraph
+    # and Graph/GraphNode under `if TYPE_CHECKING:` (with `from __future__ import
+    # annotations`) -- it has no real runtime dependency on `:dependency_graph`
+    # or `:graph`. A real dep here would create a Bazel-level cycle now that
+    # `:graph` (which `:retimer` is used from) also depends on `:retimer`.
     deps = [],
 )
 

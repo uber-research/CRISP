@@ -25,6 +25,7 @@ py_test(
         "//crisp:exceptions",
         "//crisp:process_trace",
         "//crisp:dependency_graph",
+        "//crisp:retimer",
         "//crisp:slack_drag",
         "//crisp:server",
         "//crisp/service:service",
@@ -168,6 +169,20 @@ py_test(
         "//crisp:graph",
         "//crisp:dependency_graph",
         "//crisp/shared:shared",
+        "@pypi//pytest",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_retimer",
+    size = "small",
+    srcs = ["tests/test_retimer.py"],
+    data = glob(["test_cases/**"]),
+    deps = [
+        "//crisp:retimer",
+        "//crisp:graph",
+        "//crisp:dependency_graph",
         "@pypi//pytest",
     ],
     imports = ["."],
