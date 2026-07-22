@@ -25,8 +25,10 @@ from crisp.output.csv_generators import (
     genCrossRegionCallsCSVFile,
     genEmptyCSVFile,
     genHypoLatencyCSVFile,
+    genSlackDragCSVFile,
 )
 from crisp.shared.models import LatencyData
+from crisp.slack_drag import PerMethodSlackDrag
 
 
 class TestComputeLatencyReduction(unittest.TestCase):
@@ -270,6 +272,72 @@ class TestGenCrossRegionCallsCSVFile(unittest.TestCase):
             result = genCrossRegionCallsCSVFile(metrics_list, self.mock_config)
 
         self.assertIsNone(result)
+
+
+class TestGenSlackDragCSVFile(unittest.TestCase):
+    def setUp(self):
+        self.mock_config = MagicMock()
+        self.mock_config.getOutputDir.return_value = tempfile.mkdtemp()
+        self.mock_config.serviceName = "TestService"
+        self.mock_config.operationName = "TestOperation"
+
+    def test_genSlackDragCSVFile_with_data(self):
+        perMethodSlackDrag = {
+            "[S1] OR->[S2] OA": PerMethodSlackDrag(
+                call_path="[S1] OR->[S2] OA",
+                span_count=2,
+                total_drag=100.0,
+                avg_drag=50.0,
+                total_slack=10.0,
+                avg_slack=5.0,
+            ),
+            "[S1] OR->[S3] OB": PerMethodSlackDrag(
+                call_path="[S1] OR->[S3] OB",
+                span_count=1,
+                total_drag=500.0,
+                avg_drag=500.0,
+                total_slack=0.0,
+                avg_slack=0.0,
+            ),
+        }
+
+        returned_csv_file = genSlackDragCSVFile(perMethodSlackDrag, self.mock_config)
+
+        self.assertTrue(os.path.exists(returned_csv_file))
+        df = pd.read_csv(returned_csv_file)
+        self.assertEqual(
+            list(df.columns),
+            ["callPath", "spanCount", "avgDrag", "totalDrag", "avgSlack", "totalSlack"],
+        )
+        self.assertEqual(len(df), 2)
+        # Sorted by avgDrag descending: the 500-avg-drag row comes first.
+        self.assertEqual(df.iloc[0]["callPath"], "[S1] OR->[S3] OB")
+        self.assertEqual(df.iloc[0]["avgDrag"], 500.0)
+        self.assertEqual(df.iloc[1]["callPath"], "[S1] OR->[S2] OA")
+        self.assertEqual(df.iloc[1]["spanCount"], 2)
+        self.assertEqual(df.iloc[1]["avgSlack"], 5.0)
+
+    def test_genSlackDragCSVFile_empty(self):
+        self.assertIsNone(genSlackDragCSVFile({}, self.mock_config))
+        self.assertIsNone(genSlackDragCSVFile(None, self.mock_config))
+
+    def test_genSlackDragCSVFile_custom_filename(self):
+        outputDir = self.mock_config.getOutputDir.return_value
+        perMethodSlackDrag = {
+            "[S1] OR": PerMethodSlackDrag(
+                call_path="[S1] OR",
+                span_count=1,
+                total_drag=10.0,
+                avg_drag=10.0,
+                total_slack=0.0,
+                avg_slack=0.0,
+            ),
+        }
+
+        returned_csv_file = genSlackDragCSVFile(perMethodSlackDrag, self.mock_config, filename="custom_slackdrag.csv")
+
+        self.assertEqual(returned_csv_file, os.path.join(outputDir, "custom_slackdrag.csv"))
+        self.assertTrue(os.path.exists(returned_csv_file))
 
 
 class TestComputeLatencyReductionOriginal(unittest.TestCase):

@@ -292,6 +292,7 @@ py_test(
     srcs = ["tests/output/test_csv_generators.py"],
     main = "tests/output/test_csv_generators.py",
     deps = [
+        "//crisp:slack_drag",
         "//crisp/output:output",
         "//crisp/shared:shared",
         "@pypi//pandas",

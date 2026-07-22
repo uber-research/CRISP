@@ -10,8 +10,11 @@ from crisp.dependency_graph import DependencyGraph
 from crisp.slack_drag import (
     Drag,
     Slack,
+    PerMethodSlackDrag,
     calculate_drag,
     calculate_slack,
+    aggregate_drag_slack_by_callpath,
+    merge_per_method_slack_drag,
     _exclusive_cp_time,
 )
 
@@ -215,6 +218,34 @@ def branch_with_noncritical_sibling_graph():
         _span("B", "OB", "S2", 0, 50, parent_id="R"),
     ]
     return _build_graph(spans, {"S1": "S1", "S2": "S2"}, "S1", "OR")
+
+
+# Same shape/op/service names as linear_chain_graph() above (so every node shares
+# the exact same Graph.getCallPath identity across the two graphs), but with
+# different durations throughout -- used to build two distinct "traces" that
+# genuinely share call paths, for testing merge_per_method_slack_drag's
+# cross-trace summation without hand-guessing drag/slack numbers.
+def linear_chain_graph_variant():
+    spans = [
+        _span("R", "OR", "S1", 0, 600),
+        _span("X", "OX", "S2", 0, 400, parent_id="R"),
+        _span("Y", "OY", "S3", 0, 200, parent_id="X"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2", "S3": "S3"}, "S1", "OR")
+
+
+# R ([S1] OR) -> A ([S2] OX)
+#             -> B ([S3] OX)
+# Same operation name ("OX") on both children, but different services (S2 vs
+# S3) -- Graph.getCallPath includes the service in its canonical name, so
+# these must NOT be merged into one call path by aggregate_drag_slack_by_callpath.
+def same_opname_different_service_siblings_graph():
+    spans = [
+        _span("R", "OR", "S1", 0, 500),
+        _span("A", "OX", "S2", 0, 100, parent_id="R"),
+        _span("B", "OX", "S3", 200, 300, parent_id="R"),
+    ]
+    return _build_graph(spans, {"S1": "S1", "S2": "S2", "S3": "S3"}, "S1", "OR")
 
 
 # --- Fixtures for calculate_slack. ---
@@ -966,3 +997,260 @@ def test_slack_dataclass_is_frozen():
     slack = Slack(slack_per_span={"A": 1.0}, total_slack=1.0)
     with pytest.raises(AttributeError):
         slack.total_slack = 2.0
+
+
+# --- aggregate_drag_slack_by_callpath: single-trace per-method aggregation. ---
+
+
+def test_aggregate_by_callpath_distinct_paths_matches_per_span_values_exactly():
+    # No call path repeats in this graph, so every aggregate entry should be a
+    # trivial (span_count=1) passthrough of the underlying per-span values.
+    g = linear_chain_graph()
+    cp = g.findCriticalPath()
+    drag = calculate_drag(g, cp)
+    slack = calculate_slack(g, cp)
+
+    agg = aggregate_drag_slack_by_callpath(g, drag, slack)
+
+    assert len(agg) == len(g.nodeHT) == 3
+    for node in g.nodeHT.values():
+        call_path = g.getCallPath(node)
+        entry = agg[call_path]
+        assert entry.call_path == call_path
+        assert entry.span_count == 1
+        assert entry.total_drag == drag.drag_per_span.get(node.sid, 0.0)
+        assert entry.avg_drag == entry.total_drag
+        assert entry.total_slack == slack.slack_per_span[node.sid]
+        assert entry.avg_slack == entry.total_slack
+
+
+def test_aggregate_by_callpath_groups_same_callpath_and_averages():
+    g = fanout_same_callpath_off_cp_graph()
+    cp = g.findCriticalPath()
+    drag = calculate_drag(g, cp)
+    slack = calculate_slack(g, cp)
+
+    b1, b2 = g.nodeHT["B1"], g.nodeHT["B2"]
+    ob_call_path = g.getCallPath(b1)
+    # Sanity: confirm the two "Ob" instances really do share one call path
+    # (same op name/service, same parent) before relying on that below.
+    assert ob_call_path == g.getCallPath(b2)
+
+    agg = aggregate_drag_slack_by_callpath(g, drag, slack)
+    entry = agg[ob_call_path]
+
+    expected_total_drag = drag.drag_per_span.get("B1", 0.0) + drag.drag_per_span.get("B2", 0.0)
+    expected_total_slack = slack.slack_per_span["B1"] + slack.slack_per_span["B2"]
+
+    assert entry.span_count == 2
+    assert entry.total_drag == expected_total_drag
+    assert entry.avg_drag == expected_total_drag / 2
+    assert entry.total_slack == expected_total_slack
+    assert entry.avg_slack == expected_total_slack / 2
+
+    # Other call paths in the same graph (P, C) are unaffected -- span_count 1.
+    p_call_path = g.getCallPath(g.nodeHT["P"])
+    assert agg[p_call_path].span_count == 1
+
+
+def test_aggregate_by_callpath_distinguishes_same_opname_different_service():
+    g = same_opname_different_service_siblings_graph()
+    cp = g.findCriticalPath()
+    drag = calculate_drag(g, cp)
+    slack = calculate_slack(g, cp)
+
+    a_path = g.getCallPath(g.nodeHT["A"])
+    b_path = g.getCallPath(g.nodeHT["B"])
+    assert a_path != b_path
+
+    agg = aggregate_drag_slack_by_callpath(g, drag, slack)
+
+    assert agg[a_path].span_count == 1
+    assert agg[b_path].span_count == 1
+    assert len(agg) == 3  # R, A (S2::OX), B (S3::OX) all stay distinct
+
+
+@pytest.mark.parametrize(
+    "graph_fn",
+    [
+        linear_chain_graph,
+        sequential_siblings_with_slight_overlap_graph,
+        fanout_same_callpath_off_cp_graph,
+        branch_with_noncritical_sibling_graph,
+        happens_before_chain_constrains_sibling_slack_graph,
+        earliest_ending_sibling_with_own_child_graph,
+        exclusive_formula_branch_graph,
+        only_child_graph,
+        root_only_graph,
+    ],
+)
+def test_aggregate_by_callpath_totals_equal_underlying_drag_and_slack_totals(graph_fn):
+    # Regrouping by call path must never lose or double-count a span's drag/slack:
+    # summing back across every aggregate entry must reproduce the original totals.
+    g = graph_fn()
+    cp = g.findCriticalPath()
+    drag = calculate_drag(g, cp)
+    slack = calculate_slack(g, cp)
+
+    agg = aggregate_drag_slack_by_callpath(g, drag, slack)
+
+    assert sum(entry.total_drag for entry in agg.values()) == pytest.approx(drag.total_drag)
+    assert sum(entry.total_slack for entry in agg.values()) == pytest.approx(slack.total_slack)
+    assert sum(entry.span_count for entry in agg.values()) == len(g.nodeHT)
+
+
+def test_aggregate_by_callpath_reuses_given_drag_not_recomputed():
+    # exclusive_formula_branch_graph's own docstring documents that M's inclusive
+    # vs exclusive drag differ sharply (395 vs 15). aggregate_drag_slack_by_callpath
+    # must reflect whichever Drag it was handed -- never recompute its own.
+    g = exclusive_formula_branch_graph()
+    cp = g.findCriticalPath()
+    inclusive_drag = calculate_drag(g, cp, exclusive=False)
+    exclusive_drag = calculate_drag(g, cp, exclusive=True)
+    slack = calculate_slack(g, cp)
+
+    m_path = g.getCallPath(g.nodeHT["M"])
+    agg_inclusive = aggregate_drag_slack_by_callpath(g, inclusive_drag, slack)
+    agg_exclusive = aggregate_drag_slack_by_callpath(g, exclusive_drag, slack)
+
+    assert agg_inclusive[m_path].total_drag == inclusive_drag.drag_per_span["M"]
+    assert agg_exclusive[m_path].total_drag == exclusive_drag.drag_per_span["M"]
+    assert agg_inclusive[m_path].total_drag != agg_exclusive[m_path].total_drag
+
+
+@pytest.mark.parametrize("filename", ["1.json", "5.json"])
+def test_aggregate_by_callpath_realistic_fixtures_preserve_totals(filename):
+    g = _load_test_case(filename)
+    cp = g.findCriticalPath()
+    drag = calculate_drag(g, cp)
+    slack = calculate_slack(g, cp)
+
+    agg = aggregate_drag_slack_by_callpath(g, drag, slack)
+
+    assert sum(entry.total_drag for entry in agg.values()) == pytest.approx(drag.total_drag)
+    assert sum(entry.total_slack for entry in agg.values()) == pytest.approx(slack.total_slack)
+    assert sum(entry.span_count for entry in agg.values()) == len(g.nodeHT)
+    # Every call path present should have at least one span backing it.
+    assert all(entry.span_count > 0 for entry in agg.values())
+
+
+def test_per_method_slack_drag_dataclass_is_frozen():
+    entry = PerMethodSlackDrag(
+        call_path="[S1] OR",
+        span_count=1,
+        total_drag=1.0,
+        avg_drag=1.0,
+        total_slack=0.0,
+        avg_slack=0.0,
+    )
+    with pytest.raises(AttributeError):
+        entry.span_count = 2
+
+
+# --- merge_per_method_slack_drag: cross-trace aggregation. ---
+
+
+def test_merge_sums_weighted_not_average_of_per_trace_averages():
+    # trace1 saw this call path 3 times (avg 10); trace2 saw it once (avg 100).
+    # A naive average-of-averages would report (10 + 100) / 2 == 55. The correct,
+    # weighted answer -- summing span_count/total_drag first -- is 130 / 4 == 32.5.
+    trace1 = {
+        "cp": PerMethodSlackDrag(call_path="cp", span_count=3, total_drag=30.0, avg_drag=10.0, total_slack=0.0, avg_slack=0.0),
+    }
+    trace2 = {
+        "cp": PerMethodSlackDrag(call_path="cp", span_count=1, total_drag=100.0, avg_drag=100.0, total_slack=0.0, avg_slack=0.0),
+    }
+
+    merged = merge_per_method_slack_drag([trace1, trace2])
+
+    assert merged["cp"].span_count == 4
+    assert merged["cp"].total_drag == 130.0
+    assert merged["cp"].avg_drag == pytest.approx(32.5)
+    assert merged["cp"].avg_drag != pytest.approx(55.0)
+
+
+def test_merge_unions_call_paths_present_in_only_some_traces():
+    trace1 = {
+        "a": PerMethodSlackDrag("a", 1, 10.0, 10.0, 0.0, 0.0),
+        "b": PerMethodSlackDrag("b", 2, 20.0, 10.0, 4.0, 2.0),
+    }
+    trace2 = {
+        "b": PerMethodSlackDrag("b", 1, 5.0, 5.0, 1.0, 1.0),
+        "c": PerMethodSlackDrag("c", 1, 7.0, 7.0, 0.0, 0.0),
+    }
+
+    merged = merge_per_method_slack_drag([trace1, trace2])
+
+    assert set(merged.keys()) == {"a", "b", "c"}
+    assert merged["a"].span_count == 1
+    assert merged["a"].total_drag == 10.0
+    assert merged["b"].span_count == 3
+    assert merged["b"].total_drag == 25.0
+    assert merged["b"].total_slack == 5.0
+    assert merged["b"].avg_drag == pytest.approx(25.0 / 3)
+    assert merged["c"].span_count == 1
+    assert merged["c"].total_drag == 7.0
+
+
+def test_merge_empty_iterable_returns_empty_dict():
+    assert merge_per_method_slack_drag([]) == {}
+    assert merge_per_method_slack_drag(iter([])) == {}
+
+
+def test_merge_single_trace_is_identity():
+    g = fanout_same_callpath_off_cp_graph()
+    cp = g.findCriticalPath()
+    drag = calculate_drag(g, cp)
+    slack = calculate_slack(g, cp)
+    agg = aggregate_drag_slack_by_callpath(g, drag, slack)
+
+    merged = merge_per_method_slack_drag([agg])
+
+    assert merged == agg
+
+
+def test_merge_many_identical_traces_scales_totals_but_preserves_average():
+    g = fanout_same_callpath_off_cp_graph()
+    cp = g.findCriticalPath()
+    drag = calculate_drag(g, cp)
+    slack = calculate_slack(g, cp)
+    agg = aggregate_drag_slack_by_callpath(g, drag, slack)
+
+    num_copies = 5
+    merged = merge_per_method_slack_drag([agg] * num_copies)
+
+    for call_path, single_trace_entry in agg.items():
+        merged_entry = merged[call_path]
+        assert merged_entry.span_count == single_trace_entry.span_count * num_copies
+        assert merged_entry.total_drag == pytest.approx(single_trace_entry.total_drag * num_copies)
+        assert merged_entry.total_slack == pytest.approx(single_trace_entry.total_slack * num_copies)
+        # Identical traces -> the merged average must equal each trace's own average.
+        assert merged_entry.avg_drag == pytest.approx(single_trace_entry.avg_drag)
+        assert merged_entry.avg_slack == pytest.approx(single_trace_entry.avg_slack)
+
+
+def test_aggregate_then_merge_end_to_end_across_two_different_traces():
+    # Two traces sharing every call path (same op/service names, see
+    # linear_chain_graph_variant's docstring) but with different durations --
+    # exercises the full aggregate-per-trace-then-merge-across-traces pipeline
+    # that process_trace.py wires together, cross-checked against the real
+    # calculate_drag/calculate_slack outputs rather than hand-predicted numbers.
+    g1 = linear_chain_graph()
+    g2 = linear_chain_graph_variant()
+
+    agg1 = aggregate_drag_slack_by_callpath(g1, calculate_drag(g1, g1.findCriticalPath()), calculate_slack(g1, g1.findCriticalPath()))
+    agg2 = aggregate_drag_slack_by_callpath(g2, calculate_drag(g2, g2.findCriticalPath()), calculate_slack(g2, g2.findCriticalPath()))
+
+    merged = merge_per_method_slack_drag([agg1, agg2])
+
+    assert set(merged.keys()) == set(agg1.keys()) == set(agg2.keys())
+    for call_path in merged:
+        expected_span_count = agg1[call_path].span_count + agg2[call_path].span_count
+        expected_total_drag = agg1[call_path].total_drag + agg2[call_path].total_drag
+        expected_total_slack = agg1[call_path].total_slack + agg2[call_path].total_slack
+
+        assert merged[call_path].span_count == expected_span_count
+        assert merged[call_path].total_drag == pytest.approx(expected_total_drag)
+        assert merged[call_path].total_slack == pytest.approx(expected_total_slack)
+        assert merged[call_path].avg_drag == pytest.approx(expected_total_drag / expected_span_count)
+        assert merged[call_path].avg_slack == pytest.approx(expected_total_slack / expected_span_count)

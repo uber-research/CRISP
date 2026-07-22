@@ -429,6 +429,7 @@ class Metrics:
         projectedLatency=None,
         isIncomplete=False,
         isSubtreeIncomplete=False,
+        slackDragPerCallPath=None,
     ):
         self.traceID = traceID
         self.CPMetrics = CPMetrics
@@ -461,3 +462,5 @@ class Metrics:
         self.projectedLatency = projectedLatency
         self.isIncomplete = isIncomplete
         self.isSubtreeIncomplete = isSubtreeIncomplete
+        # Per-call-path Drag/Slack aggregate, set only when --computeSlackDrag is enabled.
+        self.slackDragPerCallPath = slackDragPerCallPath

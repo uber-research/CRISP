@@ -177,3 +177,153 @@ class TestCriticalPathE2E(TestCase):
                     f"Expected freq={num_copies} for '{path}' (all {num_copies} copies "
                     f"share this path), got {freq}",
                 )
+
+
+# --- --computeSlackDrag: opt-in flag, default off. ---
+
+
+def _synthetic_two_root_child_trace(trace_id: str, scale: int = 1) -> dict:
+    """Two-service, two-root-child trace (R -> A, B) with non-trivial drag/slack.
+
+    ``scale`` avoids duration ties across traces, which some unrelated
+    aggregation steps break via nondeterministic object identity.
+    """
+    return {
+        "data": [
+            {
+                "traceID": trace_id,
+                "processes": {
+                    "P1": {"serviceName": "S1", "tags": []},
+                    "P2": {"serviceName": "S2", "tags": []},
+                },
+                "spans": [
+                    {
+                        "traceID": trace_id,
+                        "spanID": "R",
+                        "operationName": "O1",
+                        "references": [],
+                        "startTime": 0,
+                        "duration": 1000 * scale,
+                        "processID": "P1",
+                        "tags": [],
+                        "logs": [],
+                        "warnings": None,
+                    },
+                    {
+                        "traceID": trace_id,
+                        "spanID": "A",
+                        "operationName": "OA",
+                        "references": [
+                            {"refType": "CHILD_OF", "traceID": trace_id, "spanID": "R"},
+                        ],
+                        "startTime": 0,
+                        "duration": 400 * scale,
+                        "processID": "P2",
+                        "tags": [],
+                        "logs": [],
+                        "warnings": None,
+                    },
+                    {
+                        "traceID": trace_id,
+                        "spanID": "B",
+                        "operationName": "OB",
+                        "references": [
+                            {"refType": "CHILD_OF", "traceID": trace_id, "spanID": "R"},
+                        ],
+                        "startTime": 500 * scale,
+                        "duration": 500 * scale,
+                        "processID": "P2",
+                        "tags": [],
+                        "logs": [],
+                        "warnings": None,
+                    },
+                ],
+            },
+        ],
+    }
+
+
+def _write_synthetic_traces(traces_dir: str, num_traces: int = 2) -> None:
+    for i in range(num_traces):
+        trace_id = f"T{i}"
+        with open(os.path.join(traces_dir, f"{trace_id}.json"), "w") as f:
+            json.dump(_synthetic_two_root_child_trace(trace_id, scale=(i + 1)), f)
+
+
+class TestComputeSlackDragFlag(TestCase):
+    """--computeSlackDrag is opt-in/default-off: verify slackDrag.csv only
+    appears when requested, and that turning it on/off never changes any
+    *other* output file.
+    """
+
+    def test_slack_drag_csv_only_written_when_flag_enabled(self):
+        with tempfile.TemporaryDirectory() as tmpdir_off, tempfile.TemporaryDirectory() as tmpdir_on:
+            _write_synthetic_traces(tmpdir_off)
+            _write_synthetic_traces(tmpdir_on)
+
+            self.assertEqual(0, _run_dir(tmpdir_off))
+            self.assertEqual(0, _run_dir(tmpdir_on, extra_args=["--computeSlackDrag"]))
+
+            self.assertFalse(os.path.exists(os.path.join(tmpdir_off, "slackDrag.csv")))
+            self.assertTrue(os.path.exists(os.path.join(tmpdir_on, "slackDrag.csv")))
+
+            with open(os.path.join(tmpdir_on, "slackDrag.csv")) as f:
+                content = f.read()
+            self.assertIn("callPath,spanCount,avgDrag,totalDrag,avgSlack,totalSlack", content)
+
+    def test_all_other_output_files_byte_identical_regardless_of_flag(self):
+        """Every output file other than slackDrag.csv must be byte-identical regardless of --computeSlackDrag."""
+        with tempfile.TemporaryDirectory() as tmpdir_off, tempfile.TemporaryDirectory() as tmpdir_on:
+            _write_synthetic_traces(tmpdir_off)
+            _write_synthetic_traces(tmpdir_on)
+            input_filenames = {"T0.json", "T1.json"}
+
+            self.assertEqual(0, _run_dir(tmpdir_off))
+            self.assertEqual(0, _run_dir(tmpdir_on, extra_args=["--computeSlackDrag"]))
+
+            files_off = set(os.listdir(tmpdir_off)) - input_filenames
+            files_on = set(os.listdir(tmpdir_on)) - input_filenames
+
+            # The only allowed difference in the generated file *set* is the new CSV.
+            self.assertNotIn("slackDrag.csv", files_off)
+            self.assertIn("slackDrag.csv", files_on)
+            self.assertEqual(files_on - {"slackDrag.csv"}, files_off)
+
+            for filename in sorted(files_off):
+                path_off = os.path.join(tmpdir_off, filename)
+                path_on = os.path.join(tmpdir_on, filename)
+                if os.path.isdir(path_off):
+                    continue
+                if filename.endswith(".svg"):
+                    # flamegraph.pl (the external tool that renders these) picks
+                    # each box's color at random on every invocation by design --
+                    # pre-existing, unrelated to --computeSlackDrag. Just confirm
+                    # both runs produced the file; content is not comparable.
+                    continue
+                with open(path_off, "rb") as f_off, open(path_on, "rb") as f_on:
+                    content_off = f_off.read()
+                    content_on = f_on.read()
+                if filename.endswith(".html"):
+                    # heatmap.py's pandas Styler embeds a random per-render CSS id
+                    # (e.g. "T_4b118_row0_col0") -- pre-existing nondeterminism,
+                    # unrelated to --computeSlackDrag. Normalize it away so this
+                    # test isolates the one thing it's actually checking.
+                    content_off = re.sub(rb"T_[0-9a-f]{5}", b"T_XXXXX", content_off)
+                    content_on = re.sub(rb"T_[0-9a-f]{5}", b"T_XXXXX", content_on)
+                if "vs" in filename and filename.endswith(".cct"):
+                    # The multi-percentile-window diff .cct files (produced via
+                    # difffolded.pl) can emit their per-call-path lines in a
+                    # run-dependent order that's pre-existing, unrelated to
+                    # --computeSlackDrag (it doesn't touch this code path at
+                    # all). Compare as a line multiset instead of raw bytes.
+                    self.assertEqual(
+                        sorted(content_off.splitlines()),
+                        sorted(content_on.splitlines()),
+                        f"{filename} must contain the same lines regardless of --computeSlackDrag",
+                    )
+                    continue
+                self.assertEqual(
+                    content_off,
+                    content_on,
+                    f"{filename} must be byte-identical regardless of --computeSlackDrag",
+                )

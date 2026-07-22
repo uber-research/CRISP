@@ -47,6 +47,7 @@ SAVING_POTENTIAL_CSV = "savingPotential.csv"
 PER_TRACE_ERR_INFO_CSV = "perTraceErrInfo.csv"
 CYCLES_CSV = "cycles.csv"
 CROSS_REGION_CALLS_CSV = "crossRegionCalls.csv"
+SLACK_DRAG_CSV = "slackDrag.csv"
 
 # various header names used in generated CSV files
 PRORP_TO_ROOT = "PropToRoot"
@@ -163,6 +164,7 @@ class Config:
         lightMode: bool = False,
         mergeAllRoots: bool = True,
         maxExemplars: int = 3,
+        computeSlackDrag: bool = False,
     ):
         self.operationName = operationName
         self.serviceName = serviceName
@@ -209,6 +211,7 @@ class Config:
         self.lightMode = lightMode
         self.mergeAllRoots = mergeAllRoots
         self.maxExemplars = maxExemplars
+        self.computeSlackDrag = computeSlackDrag
         # Compute the start and end UTC times for trace query.
         initialTimeStamp = getMidnightTimeStamp() if self.useMidnightTime else time.time() * 1000 * 1000
         self.startTimestamp = int(initialTimeStamp - (self.lookbackDays * 24 * 60 * 60) * 1000 * 1000) if not startTimestamp else startTimestamp
