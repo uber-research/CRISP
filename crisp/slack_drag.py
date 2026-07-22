@@ -63,6 +63,8 @@ from crisp.dependency_graph import DependencyGraph
 from crisp.utils.dict_utils import accumulateInDict
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from crisp.graph import Graph, GraphNode
 
 
@@ -410,3 +412,101 @@ def calculate_slack(
 
     total_slack = sum(slack_per_span.values())
     return Slack(slack_per_span, total_slack)
+
+
+@dataclass(frozen=True)
+class PerMethodSlackDrag:
+    """Drag and slack aggregated by call path (method) instead of per-span.
+
+    Attributes:
+        call_path: the ``Graph.getCallPath`` string this aggregate is keyed by.
+        span_count: number of spans sharing this call path.
+        total_drag: sum of drag across those spans (0.0 for spans off the
+            critical path, per ``Drag.drag_per_span``'s key-omission contract).
+        avg_drag: ``total_drag / span_count``.
+        total_slack: sum of slack across those spans.
+        avg_slack: ``total_slack / span_count``.
+    """
+
+    call_path: str
+    span_count: int
+    total_drag: float
+    avg_drag: float
+    total_slack: float
+    avg_slack: float
+
+
+def _sum_slack_drag_by_callpath(
+    entries: Iterable[tuple[str, int, float, float]],
+) -> dict[str, PerMethodSlackDrag]:
+    """Sum ``(call_path, span_count, drag, slack)`` entries by call path, deriving averages from the totals."""
+    totals: dict[str, list[float]] = {}
+    for call_path, span_count, drag_value, slack_value in entries:
+        totals.setdefault(call_path, [0, 0.0, 0.0])
+        entry = totals[call_path]
+        entry[0] += span_count
+        entry[1] += drag_value
+        entry[2] += slack_value
+
+    result: dict[str, PerMethodSlackDrag] = {}
+    for call_path, (span_count, total_drag, total_slack) in totals.items():
+        result[call_path] = PerMethodSlackDrag(
+            call_path=call_path,
+            span_count=span_count,
+            total_drag=total_drag,
+            avg_drag=total_drag / span_count if span_count else 0.0,
+            total_slack=total_slack,
+            avg_slack=total_slack / span_count if span_count else 0.0,
+        )
+    return result
+
+
+def aggregate_drag_slack_by_callpath(
+    graph: Graph,
+    drag: Drag,
+    slack: Slack,
+) -> dict[str, PerMethodSlackDrag]:
+    """Aggregate one graph's per-span drag/slack onto call-path identity.
+
+    Groups every node by ``graph.getCallPath(node)`` and sums drag/slack
+    across spans sharing that call path; does not recompute drag/slack.
+
+    Args:
+        graph: the Graph that ``drag``/``slack`` were computed from.
+        drag: per-span drag, as returned by ``calculate_drag``.
+        slack: per-span slack, as returned by ``calculate_slack``.
+
+    Returns:
+        Mapping from call path to its aggregated :class:`PerMethodSlackDrag`.
+    """
+    entries = (
+        (
+            graph.getCallPath(node),
+            1,
+            drag.drag_per_span.get(node.sid, 0.0),
+            slack.slack_per_span.get(node.sid, 0.0),
+        )
+        for node in graph.nodeHT.values()
+    )
+    return _sum_slack_drag_by_callpath(entries)
+
+
+def merge_per_method_slack_drag(
+    per_trace_aggregates: Iterable[dict[str, PerMethodSlackDrag]],
+) -> dict[str, PerMethodSlackDrag]:
+    """Merge per-call-path drag/slack aggregates from multiple traces into one.
+
+    Sums ``span_count``/``total_drag``/``total_slack`` per call path across
+    all inputs, then re-derives averages from those sums -- never by
+    averaging the per-trace averages directly, which would mis-weight
+    traces that saw a call path a different number of times.
+
+    Args:
+        per_trace_aggregates: aggregate dicts to merge, e.g. one per trace
+            as produced by :func:`aggregate_drag_slack_by_callpath`.
+
+    Returns:
+        A single mapping from call path to its merged :class:`PerMethodSlackDrag`.
+    """
+    entries = ((call_path, agg.span_count, agg.total_drag, agg.total_slack) for per_trace in per_trace_aggregates for call_path, agg in per_trace.items())
+    return _sum_slack_drag_by_callpath(entries)

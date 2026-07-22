@@ -236,6 +236,40 @@ def genCyclesCSVFile(metrics, c, filename=None):
     return cyclesCSVFile
 
 
+def genSlackDragCSVFile(perMethodSlackDrag, c, filename=None):
+    """Generate per-call-path Drag/Slack CSV file, sorted by descending average drag."""
+    outputDir = c.getOutputDir()
+    slackDragCSVFile = os.path.join(outputDir, filename or "slackDrag.csv")
+    columns = ["callPath", "spanCount", "avgDrag", "totalDrag", "avgSlack", "totalSlack"]
+
+    if not perMethodSlackDrag:
+        logging.info("No slack/drag data found")
+        return None
+
+    logging.info(
+        "Producing [%s]%s slack/drag csv file %s",
+        c.serviceName,
+        c.operationName,
+        slackDragCSVFile,
+    )
+    rows = [
+        [
+            agg.call_path,
+            agg.span_count,
+            agg.avg_drag,
+            agg.total_drag,
+            agg.avg_slack,
+            agg.total_slack,
+        ]
+        for agg in perMethodSlackDrag.values()
+    ]
+    df = pd.DataFrame(rows, columns=columns)
+    df = df.sort_values(by="avgDrag", ascending=False).reset_index(drop=True)
+    df.to_csv(slackDragCSVFile, index=False)
+
+    return slackDragCSVFile
+
+
 def genCrossRegionCallsCSVFile(metrics, c, filename=None):
     """Generate cross-region calls CSV file."""
     # Note: This function needs access to os and logging at runtime

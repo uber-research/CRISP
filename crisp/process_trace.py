@@ -37,12 +37,14 @@ from crisp.output.csv_generators import (
     genCrossRegionCallsCSVFile,
     genCyclesCSVFile,
     genHypoLatencyCSVFile,
+    genSlackDragCSVFile,
     genSummaryCSVFile,
 )
 from crisp.output.formatters import makeClickable, renameSortableIcon
 from crisp.shared.constants import JAEGER_UI_URL
 from crisp.shared.models import LatencyData, QuantizedMetrics, SavingData
 from crisp.shared.utils import getLeafNodeFromCallPath
+from crisp.slack_drag import aggregate_drag_slack_by_callpath, merge_per_method_slack_drag
 
 
 logging.basicConfig(
@@ -363,6 +365,18 @@ def initArgs():
     )
 
     argParser.add_argument(
+        "--computeSlackDrag",
+        dest="computeSlackDrag",
+        action="store_true",
+        default=False,
+        required=False,
+        help=(
+            "Compute per-method Drag/Slack (see slack_drag.py) and emit a slackDrag.csv "
+            "output file (default=false). Opt-in: when not set, output is unchanged."
+        ),
+    )
+
+    argParser.add_argument(
         "--deltaTargetService",
         dest="deltaTargetService",
         action="store",
@@ -431,6 +445,7 @@ def initArgs():
     deltaTargetOperation = args.deltaTargetOperation
     lightMode = args.lightMode
     maxExemplars = args.maxExemplars
+    computeSlackDrag = args.computeSlackDrag
     jaegerTraceFiles = glob.glob(os.path.join(tracesDir, "*.json"))
 
     if args.file:
@@ -466,6 +481,7 @@ def initArgs():
         mergeAllRoots=args.mergeAllRoots,
         maxExemplars=maxExemplars,
         jaegerQueryUrl=args.jaegerQueryUrl,
+        computeSlackDrag=computeSlackDrag,
     )
     c.jaegerTraceFiles = jaegerTraceFiles
     c.outputDir = args.outputDir if args.outputDir else tracesDir
@@ -630,6 +646,11 @@ def process(filename: str, config: common.Config) -> Any:
         timeSavedOnCPAllSeries,
         {},
     )
+
+    if config.computeSlackDrag and metrics:
+        drag = graph.calculateDrag(cp=criticalPath)
+        slack = graph.calculateSlack(cp=criticalPath)
+        metrics.slackDragPerCallPath = aggregate_drag_slack_by_callpath(graph, drag, slack)
 
     logging.debug("critical path: %s", criticalPath)
     cpp = metrics.CPMetrics.profile if metrics.CPMetrics else {}
@@ -2074,6 +2095,13 @@ def performCriticalPathAnalysis(c: common.Config) -> int:
     cyclesCSVFile = genCyclesCSVFile(metrics, c, filename=common.CYCLES_CSV)
     logging.info("Starting genCrossRegionCallsCSVFile")
     crossRegionCallsCSVFile = genCrossRegionCallsCSVFile(metrics, c, filename=common.CROSS_REGION_CALLS_CSV)
+
+    slackDragCSVFile = None
+    if c.computeSlackDrag:
+        logging.info("Starting genSlackDragCSVFile")
+        mergedSlackDragPerCallPath = merge_per_method_slack_drag(m.slackDragPerCallPath for m in metrics if m.slackDragPerCallPath)
+        slackDragCSVFile = genSlackDragCSVFile(mergedSlackDragPerCallPath, c, filename=common.SLACK_DRAG_CSV)
+
     logging.info("Starting genHypoLatencyCSVFile")
     hypoLatencyCSVFile = genHypoLatencyCSVFile(headLatencyPercentile, hypoLatencyPercentile, c)
 
@@ -2105,6 +2133,8 @@ def performCriticalPathAnalysis(c: common.Config) -> int:
         c.filesToUpload.append(cyclesCSVFile)
     if crossRegionCallsCSVFile:
         c.filesToUpload.append(crossRegionCallsCSVFile)
+    if slackDragCSVFile:
+        c.filesToUpload.append(slackDragCSVFile)
     logMetrics(c, metrics, fg)
     return 0
 

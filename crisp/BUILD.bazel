@@ -185,6 +185,7 @@ py_library(
         "//crisp:flamegraph",
         "//crisp:graph",
         "//crisp:pkg",
+        "//crisp:slack_drag",
         "//crisp:storage",
         "//crisp/metrics:metrics",
         "//crisp/output:output",
