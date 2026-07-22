@@ -19,6 +19,10 @@ jobs:
   python:
     name: Python 3.11 (pytest + test.sh)
     runs-on: ubuntu-latest
+    # Overall backstop: this job normally finishes in ~1 minute, so 20
+    # minutes is already generous margin over the retried-install worst
+    # case below, while still failing well short of GitHub's 6h default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -28,10 +32,21 @@ jobs:
           cache: pip
           cache-dependency-path: requirements_lock.txt
 
+      # requirements_lock.txt is pinned, so this step normally takes ~20s;
+      # a hang here in the wild has taken 30 minutes (a stalled TCP read
+      # that pip's own retry logic didn't catch). --timeout/--retries bound
+      # each individual pip network operation, and wrapping the whole step
+      # in nick-fields/retry re-attempts it from scratch (fresh connections/
+      # DNS) up to 3 times, each capped at 3 minutes, so a stall now
+      # self-heals in CI instead of requiring a manual cancel + rerun.
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements_lock.txt
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 3
+          max_attempts: 3
+          command: |
+            python -m pip install --upgrade pip
+            pip install --timeout 60 --retries 3 -r requirements_lock.txt
 
       # Keep in sync with scripts/ci-local.sh (pytest -q + test.sh).
       - name: Unit + trace tests
