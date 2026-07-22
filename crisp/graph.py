@@ -40,6 +40,8 @@ from crisp.utils.dict_utils import (
     accumulateInDict, getCPSize
 )
 from crisp.slack_drag import calculate_drag, calculate_slack
+from crisp.dependency_graph import DependencyGraph
+from crisp.retimer import Retimer
 
 # Re-export for backward compatibility
 __all__ = ['Graph', 'accumulateInDict', 'bcolors', 'getCPSize']
@@ -258,6 +260,7 @@ class Graph:
         self.proxyNodes = {}  # maps sid to child count, for sanity checks
         self.filterProxy = filterProxy
         self.numProxyRoots = 0  # number of proxy nodes that are roots
+        self.retimed = False  # set to True once Retimer.retime_node has mutated this Graph
         self.exclusionSet = (
             exclusionSet if exclusionSet else {}
         )  # operations to exlude from the graph
@@ -1986,6 +1989,25 @@ class Graph:
         if cp is None:
             cp = self.findCriticalPath()
         return calculate_slack(self, cp, dependency_graph)
+
+    def retimeNodeWithDependencyGraph(self, node_span_id, new_start, new_end, dependency_graph=None, freeze_starts=True):
+        """Retime one node in this Graph, cascading the effect to siblings/ancestors.
+
+        See :meth:`Retimer.retime_node` for full semantics. Unlike
+        calculateDrag/calculateSlack (pure, read-only), this MUTATES this
+        Graph in place with no built-in restore.
+
+        Args:
+            node_span_id: the span id of the node to retime.
+            new_start: the node's new start time.
+            new_end: the node's new end time.
+            dependency_graph: Optional pre-built DependencyGraph. If None,
+                builds one internally via DependencyGraph(graph=self).
+            freeze_starts: see Retimer.retime_node.
+        """
+        if dependency_graph is None:
+            dependency_graph = DependencyGraph(graph=self)
+        Retimer(dependency_graph).retime_node(self, node_span_id, new_start, new_end, freeze_starts)
 
     def findErrorsOnCriticalPath(self, rootNode=None):
         """Find errors on the critical path starting from the given root node.
