@@ -189,6 +189,19 @@ py_test(
 )
 
 py_test(
+    name = "test_retimer_cross_validation",
+    size = "small",
+    srcs = ["tests/test_retimer_cross_validation.py"],
+    deps = [
+        "//crisp:retimer",
+        "//crisp:graph",
+        "//crisp:dependency_graph",
+        "@pypi//pytest",
+    ],
+    imports = ["."],
+)
+
+py_test(
     name = "test_get_trace",
     srcs = ["tests/test_get_trace.py"],
     deps = [

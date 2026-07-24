@@ -95,7 +95,10 @@ py_library(
     # annotations`) -- it has no real runtime dependency on `:dependency_graph`
     # or `:graph`. A real dep here would create a Bazel-level cycle now that
     # `:graph` (which `:retimer` is used from) also depends on `:retimer`.
-    deps = [],
+    # `//crisp/shared:shared` (for SpanKind, used by retime_method) is a real,
+    # module-level import -- safe because crisp/shared has no dependency on
+    # `:retimer` or `:graph`, so it doesn't create the same cycle risk.
+    deps = ["//crisp/shared:shared"],
 )
 
 py_library(
