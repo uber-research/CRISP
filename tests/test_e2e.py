@@ -14,6 +14,8 @@ import sys
 import tempfile
 from unittest import TestCase, mock
 
+import pandas as pd
+
 import crisp.process_trace as process_trace
 from crisp.proto import analyzer_pb2
 
@@ -183,11 +185,32 @@ class TestCriticalPathE2E(TestCase):
 
 
 def _synthetic_two_root_child_trace(trace_id: str, scale: int = 1) -> dict:
-    """Two-service, two-root-child trace (R -> A, B) with non-trivial drag/slack.
+    """Trace with a root and three children (R -> A, B, D) with non-trivial
+    drag *and* slack.
+
+    A (0-100) and D (700-1000) end up on the critical path; B (300-750)
+    overlaps D's start by 5% -- past happensBefore's fuzzy-overlap tolerance
+    -- so it's excluded from cp and has real (nonzero) slack, matching
+    ``happens_before_chain_constrains_sibling_slack_graph`` in
+    test_slack_drag.py.
 
     ``scale`` avoids duration ties across traces, which some unrelated
     aggregation steps break via nondeterministic object identity.
     """
+    def _span(span_id, op, start, duration):
+        return {
+            "traceID": trace_id,
+            "spanID": span_id,
+            "operationName": op,
+            "references": [{"refType": "CHILD_OF", "traceID": trace_id, "spanID": "R"}],
+            "startTime": start * scale,
+            "duration": duration * scale,
+            "processID": "P2",
+            "tags": [],
+            "logs": [],
+            "warnings": None,
+        }
+
     return {
         "data": [
             {
@@ -209,34 +232,9 @@ def _synthetic_two_root_child_trace(trace_id: str, scale: int = 1) -> dict:
                         "logs": [],
                         "warnings": None,
                     },
-                    {
-                        "traceID": trace_id,
-                        "spanID": "A",
-                        "operationName": "OA",
-                        "references": [
-                            {"refType": "CHILD_OF", "traceID": trace_id, "spanID": "R"},
-                        ],
-                        "startTime": 0,
-                        "duration": 400 * scale,
-                        "processID": "P2",
-                        "tags": [],
-                        "logs": [],
-                        "warnings": None,
-                    },
-                    {
-                        "traceID": trace_id,
-                        "spanID": "B",
-                        "operationName": "OB",
-                        "references": [
-                            {"refType": "CHILD_OF", "traceID": trace_id, "spanID": "R"},
-                        ],
-                        "startTime": 500 * scale,
-                        "duration": 500 * scale,
-                        "processID": "P2",
-                        "tags": [],
-                        "logs": [],
-                        "warnings": None,
-                    },
+                    _span("A", "OA", 0, 100),
+                    _span("B", "OB", 300, 450),
+                    _span("D", "OD", 700, 300),
                 ],
             },
         ],
@@ -251,12 +249,13 @@ def _write_synthetic_traces(traces_dir: str, num_traces: int = 2) -> None:
 
 
 class TestComputeSlackDragFlag(TestCase):
-    """--computeSlackDrag is opt-in/default-off: verify slackDrag.csv only
-    appears when requested, and that turning it on/off never changes any
-    *other* output file.
+    """Drag is always computed (cheap, never affects latency-savings projections);
+    --computeSlackDrag only gates the much more expensive Slack columns. Verify
+    that turning the flag on/off never changes any output *other than* the slack
+    columns inside slackDrag.csv.
     """
 
-    def test_slack_drag_csv_only_written_when_flag_enabled(self):
+    def test_slack_drag_csv_always_written_slack_columns_only_when_flag_enabled(self):
         with tempfile.TemporaryDirectory() as tmpdir_off, tempfile.TemporaryDirectory() as tmpdir_on:
             _write_synthetic_traces(tmpdir_off)
             _write_synthetic_traces(tmpdir_on)
@@ -264,15 +263,31 @@ class TestComputeSlackDragFlag(TestCase):
             self.assertEqual(0, _run_dir(tmpdir_off))
             self.assertEqual(0, _run_dir(tmpdir_on, extra_args=["--computeSlackDrag"]))
 
-            self.assertFalse(os.path.exists(os.path.join(tmpdir_off, "slackDrag.csv")))
-            self.assertTrue(os.path.exists(os.path.join(tmpdir_on, "slackDrag.csv")))
+            path_off = os.path.join(tmpdir_off, "slackDrag.csv")
+            path_on = os.path.join(tmpdir_on, "slackDrag.csv")
+            self.assertTrue(os.path.exists(path_off))
+            self.assertTrue(os.path.exists(path_on))
 
-            with open(os.path.join(tmpdir_on, "slackDrag.csv")) as f:
-                content = f.read()
-            self.assertIn("callPath,spanCount,avgDrag,totalDrag,avgSlack,totalSlack", content)
+            df_off = pd.read_csv(path_off)
+            df_on = pd.read_csv(path_on)
+            self.assertListEqual(
+                list(df_off.columns),
+                ["callPath", "spanCount", "avgDrag", "totalDrag", "avgSlack", "totalSlack"],
+            )
+            # Drag columns are identical regardless of the flag.
+            pd.testing.assert_frame_equal(
+                df_off[["callPath", "spanCount", "avgDrag", "totalDrag"]],
+                df_on[["callPath", "spanCount", "avgDrag", "totalDrag"]],
+            )
+            self.assertTrue((df_off["avgSlack"] == 0.0).all())
+            self.assertTrue((df_off["totalSlack"] == 0.0).all())
+            self.assertTrue((df_on["totalSlack"] > 0.0).any())
 
     def test_all_other_output_files_byte_identical_regardless_of_flag(self):
-        """Every output file other than slackDrag.csv must be byte-identical regardless of --computeSlackDrag."""
+        """Every output file other than slackDrag.csv's slack columns must be
+        byte-identical regardless of --computeSlackDrag (slackDrag.csv itself is
+        always produced, since drag is always computed).
+        """
         with tempfile.TemporaryDirectory() as tmpdir_off, tempfile.TemporaryDirectory() as tmpdir_on:
             _write_synthetic_traces(tmpdir_off)
             _write_synthetic_traces(tmpdir_on)
@@ -284,15 +299,18 @@ class TestComputeSlackDragFlag(TestCase):
             files_off = set(os.listdir(tmpdir_off)) - input_filenames
             files_on = set(os.listdir(tmpdir_on)) - input_filenames
 
-            # The only allowed difference in the generated file *set* is the new CSV.
-            self.assertNotIn("slackDrag.csv", files_off)
-            self.assertIn("slackDrag.csv", files_on)
-            self.assertEqual(files_on - {"slackDrag.csv"}, files_off)
+            # The generated file *set* is now identical either way -- slackDrag.csv
+            # is unconditional. Only its slack columns are allowed to differ.
+            self.assertEqual(files_on, files_off)
 
             for filename in sorted(files_off):
                 path_off = os.path.join(tmpdir_off, filename)
                 path_on = os.path.join(tmpdir_on, filename)
                 if os.path.isdir(path_off):
+                    continue
+                if filename == "slackDrag.csv":
+                    # Covered separately by
+                    # test_slack_drag_csv_always_written_slack_columns_only_when_flag_enabled.
                     continue
                 if filename.endswith(".svg"):
                     # flamegraph.pl (the external tool that renders these) picks
@@ -327,3 +345,28 @@ class TestComputeSlackDragFlag(TestCase):
                     content_on,
                     f"{filename} must be byte-identical regardless of --computeSlackDrag",
                 )
+
+
+class TestLightModeSlackDrag(TestCase):
+    """lightProcess() must also always emit slackDrag.csv (drag always computed;
+    slack columns gated behind --computeSlackDrag), mirroring the heavy path.
+    """
+
+    def test_light_mode_always_writes_slack_drag_csv(self):
+        with tempfile.TemporaryDirectory() as tmpdir_off, tempfile.TemporaryDirectory() as tmpdir_on:
+            _write_synthetic_traces(tmpdir_off)
+            _write_synthetic_traces(tmpdir_on)
+
+            self.assertEqual(0, _run_dir(tmpdir_off, extra_args=["--lightMode"]))
+            self.assertEqual(0, _run_dir(tmpdir_on, extra_args=["--lightMode", "--computeSlackDrag"]))
+
+            path_off = os.path.join(tmpdir_off, "slackDrag.csv")
+            path_on = os.path.join(tmpdir_on, "slackDrag.csv")
+            self.assertTrue(os.path.exists(path_off))
+            self.assertTrue(os.path.exists(path_on))
+
+            df_off = pd.read_csv(path_off)
+            df_on = pd.read_csv(path_on)
+            self.assertTrue((df_off["totalDrag"] > 0.0).any())
+            self.assertTrue((df_off["totalSlack"] == 0.0).all())
+            self.assertTrue((df_on["totalSlack"] > 0.0).any())

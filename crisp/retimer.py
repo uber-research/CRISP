@@ -123,6 +123,7 @@ class Retimer:
             node = g.nodeHT[sid]
             node.startTime, node.endTime, node.duration = start, end, duration
         g.retimed = False
+        g._dependencyGraphCache = None  # timings changed; cached dependency deltas are stale
 
     def retime_node(
         self,
@@ -169,6 +170,7 @@ class Retimer:
             )
 
         g.retimed = True
+        g._dependencyGraphCache = None  # timings about to change; cached dependency deltas are stale
 
         delay = new_end - node.endTime  # positive = ends later, negative = ends sooner
         parent = node.parent

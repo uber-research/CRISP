@@ -464,7 +464,7 @@ def _sum_slack_drag_by_callpath(
 def aggregate_drag_slack_by_callpath(
     graph: Graph,
     drag: Drag,
-    slack: Slack,
+    slack: Slack | None = None,
 ) -> dict[str, PerMethodSlackDrag]:
     """Aggregate one graph's per-span drag/slack onto call-path identity.
 
@@ -474,7 +474,14 @@ def aggregate_drag_slack_by_callpath(
     Args:
         graph: the Graph that ``drag``/``slack`` were computed from.
         drag: per-span drag, as returned by ``calculate_drag``.
-        slack: per-span slack, as returned by ``calculate_slack``.
+        slack: per-span slack, as returned by ``calculate_slack``. Optional
+            because slack is much more expensive than drag on large/multi-root
+            traces (it requires building a DependencyGraph) and is only ever
+            consumed for the informational slackDrag.csv report -- unlike
+            drag, it's never used in any latency-savings projection. When
+            None, every span's slack contribution is 0.0, so callers that
+            don't need slack can skip computing it without changing drag's
+            aggregation at all.
 
     Returns:
         Mapping from call path to its aggregated :class:`PerMethodSlackDrag`.
@@ -484,7 +491,7 @@ def aggregate_drag_slack_by_callpath(
             graph.getCallPath(node),
             1,
             drag.drag_per_span.get(node.sid, 0.0),
-            slack.slack_per_span.get(node.sid, 0.0),
+            slack.slack_per_span.get(node.sid, 0.0) if slack is not None else 0.0,
         )
         for node in graph.nodeHT.values()
     )
