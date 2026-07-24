@@ -1,9 +1,9 @@
-"""Single-node retime simulation for a critical path call tree.
+"""Single-node and method-level retime simulation for a critical path call tree.
 
 This module ports the "retimer" concept from Google's `calligator` project
 (Apache-2.0, see https://github.com/google/calligator/blob/main/retimer.py,
-class ``Retimer``, method ``retime_node``) to this codebase's
-:class:`~crisp.graph.Graph` and :class:`~crisp.graph.GraphNode`.
+class ``Retimer``, methods ``retime_node``/``retime_method``) to this
+codebase's :class:`~crisp.graph.Graph` and :class:`~crisp.graph.GraphNode`.
 
 Given a node's new start/end times, :meth:`Retimer.retime_node` mutates that
 node in place, shifts any true sibling that the :class:`DependencyGraph`
@@ -35,11 +35,42 @@ with a genuine per-span check (excluding the node's own span id, or
 comparing real timestamps) -- never a bare name-membership test -- so that
 self-referential entries cascade delays correctly without ever mutating a
 node based on its own happens-before edge to itself.
+
+:meth:`Retimer.retime_method` applies a percent/fixed delta to every
+instance of one method (repeated calls to ``retime_node``) and reports the
+net effect on the target root's duration. Deliberate deviations from
+calligator's literal source, required for a fair comparison against
+:meth:`Graph.computeProjectedCPMetrics` in
+``tests/test_retimer_cross_validation.py``:
+
+* Method identity is ``(targetService, targetOperation)`` on ``SERVER``
+  spans -- the same predicate ``computeProjectedCPMetrics``/
+  ``_findMatchingNodes`` already use -- not calligator's ``pid + '.' +
+  opName`` (``pid`` is only a trace-local Jaeger process alias, not a
+  stable cross-trace method identity).
+* Calligator's fixed-difference clamp branch (``if node.endTime +
+  fixed_difference < node.startTime: adjustment_amount = node.duration``)
+  inverts the intended shrink floor -- on a large shrink it *doubles* the
+  node instead of stopping the shrink at some floor -- and is not ported.
+  ``retime_method`` instead floors the new end time the same way
+  ``computeProjectedCPMetrics`` does: down to 0 duration for a leaf, or
+  down to the furthest-reaching child's end time otherwise, since
+  ``retime_node`` requires a new end time that doesn't conflict with the
+  node's own children. Same precedent as ``slack_drag.py``'s "IMPORTANT --
+  correctness note" for departing from a literal calligator port.
+* Calligator's method scans its whole ``graph.nodeHT``. This codebase's
+  ``Graph`` can hold more than one independent root subtree at once
+  (``mergeAllRoots`` / ``--span-input``, see ``process_trace.py``), so
+  ``retime_method`` instead takes an optional ``rootNode`` (default
+  ``g.rootNode``, mirroring ``computeProjectedCPMetrics``) and scopes both
+  node-matching and the returned delta to that root's own subtree.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
+from crisp.shared.models import SpanKind
 
 if TYPE_CHECKING:
     from crisp.dependency_graph import DependencyGraph
@@ -49,6 +80,24 @@ if TYPE_CHECKING:
 def _original_end_time(node: GraphNode) -> float:
     """A node's end time as originally constructed, never mutated by retiming."""
     return node.originalStartTime + node.originalDuration
+
+
+def _matches_method(g: Graph, node: GraphNode, target_service: str, target_operation: str) -> bool:
+    """Whether node is a SERVER span for (target_service, target_operation), matching computeProjectedCPMetrics."""
+    return node.spanKind == SpanKind.SERVER and g.processName.get(node.pid, "") == target_service and node.opName == target_operation
+
+
+def _find_matching_nodes(g: Graph, root: GraphNode, target_service: str, target_operation: str) -> list[GraphNode]:
+    """Matching nodes reachable from root only -- a Graph can hold more than one root
+    subtree (mergeAllRoots / --span-input), so this must not scan all of g.nodeHT."""
+    matches = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if _matches_method(g, node, target_service, target_operation):
+            matches.append(node)
+        stack.extend(node.children)
+    return matches
 
 
 class Retimer:
@@ -197,3 +246,76 @@ class Retimer:
         # Matches calligator: propagation beyond the immediate parent always uses
         # the default freeze_starts (True), regardless of what the caller passed.
         self.retime_node(g, parent.sid, new_parent_start, new_parent_end)
+
+    def retime_method(
+        self,
+        g: Graph,
+        target_service: str,
+        target_operation: str,
+        percent_difference: float | None = None,
+        fixed_difference: float | None = None,
+        rootNode: GraphNode | None = None,
+    ) -> float:
+        """Retimes every instance of one method, via repeated :meth:`retime_node` calls.
+
+        A "method" is every ``SERVER`` span matching ``target_service`` and
+        ``target_operation`` -- the same predicate
+        ``Graph.computeProjectedCPMetrics`` uses (see module docstring for
+        why this departs from calligator's ``pid + '.' + opName``).
+
+        Args:
+            g: the Graph to mutate.
+            target_service: service name of the method to retime.
+            target_operation: operation name of the method to retime.
+            percent_difference: grow (positive) or shrink (negative) each
+                matching node's duration by this percent. Mutually
+                exclusive with fixed_difference.
+            fixed_difference: grow (positive) or shrink (negative) each
+                matching node's duration by this fixed amount. Mutually
+                exclusive with percent_difference.
+            rootNode: optional root to scope matching and the returned delta
+                to (default ``g.rootNode``) -- see module docstring for why.
+                Candidate roots from ``--span-input`` can be nested inside
+                each other, and unlike ``computeProjectedCPMetrics``, this
+                method doesn't auto-restore its mutations. Callers looping
+                over several roots must :meth:`snapshot`/:meth:`restore`
+                between calls, or an overlapping subtree gets double-applied.
+
+        Returns:
+            Original root duration minus the retimed root duration -- i.e.
+            positive means the root got faster overall.
+
+        Raises:
+            ValueError: if neither or both of percent_difference/fixed_difference are set.
+        """
+        if percent_difference is not None and fixed_difference is not None:
+            raise ValueError("Only one of percent_difference or fixed_difference should be set.")
+        if percent_difference is None and fixed_difference is None:
+            raise ValueError("One of percent_difference or fixed_difference must be set.")
+
+        root = rootNode if rootNode is not None else g.rootNode
+        original_duration = root.duration
+
+        matching_nodes = _find_matching_nodes(g, root, target_service, target_operation)
+        for node in matching_nodes:
+            if percent_difference is not None:
+                # originalDuration (never mutated by retiming), not duration -- otherwise
+                # a same-method ancestor/descendant pair processed earlier in this loop
+                # would already have changed `duration` via cascade, making the percent
+                # basis (and thus the result) depend on g.nodeHT iteration order.
+                adjustment_amount = node.originalDuration * percent_difference / 100.0
+            else:
+                adjustment_amount = fixed_difference
+
+            new_end = node.endTime + adjustment_amount
+            # Deviation from calligator (see module docstring): floor the new
+            # end time the same way computeProjectedCPMetrics does, instead
+            # of porting calligator's inverted clamp branch. new_end must
+            # never drop below what still contains the node's own children --
+            # retime_node assumes a non-conflicting new_start/new_end.
+            floor_end = max(c.endTime for c in node.children) if node.children else node.startTime
+            new_end = max(new_end, floor_end)
+
+            self.retime_node(g, node.sid, node.startTime, new_end)
+
+        return original_duration - root.duration
