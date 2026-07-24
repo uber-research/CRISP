@@ -2,7 +2,7 @@
 import heapq
 import logging
 import os
-from typing import Callable
+from typing import Callable, Optional
 
 import crisp.common as common
 from crisp.shared.models import (
@@ -261,6 +261,10 @@ class Graph:
         self.filterProxy = filterProxy
         self.numProxyRoots = 0  # number of proxy nodes that are roots
         self.retimed = False  # set to True once Retimer.retime_node has mutated this Graph
+        # Lazily built by calculateSlack() and reused across every root of a multi-root
+        # trace (DependencyGraph depends only on nodeHT, not on which root/cp is being
+        # analyzed). Invalidated by Retimer whenever it mutates this Graph's timings.
+        self._dependencyGraphCache: Optional[DependencyGraph] = None
         self.exclusionSet = (
             exclusionSet if exclusionSet else {}
         )  # operations to exlude from the graph
@@ -1983,11 +1987,19 @@ class Graph:
                 calculate slack against. If None, uses findCriticalPath() on
                 this Graph's own rootNode.
             dependency_graph: Optional pre-built DependencyGraph. If None,
-                calculate_slack builds one internally via
-                DependencyGraph(graph=self).
+                reuses this Graph's cached DependencyGraph (building it once,
+                lazily) since DependencyGraph depends only on nodeHT, not on
+                which root/cp is being analyzed. This makes repeated calls on
+                a multi-root trace O(nodeHT) once instead of once per root.
+                The cache is invalidated by Retimer whenever it mutates this
+                Graph's timings.
         """
         if cp is None:
             cp = self.findCriticalPath()
+        if dependency_graph is None:
+            if self._dependencyGraphCache is None:
+                self._dependencyGraphCache = DependencyGraph(graph=self)
+            dependency_graph = self._dependencyGraphCache
         return calculate_slack(self, cp, dependency_graph)
 
     def retimeNodeWithDependencyGraph(self, node_span_id, new_start, new_end, dependency_graph=None, freeze_starts=True):

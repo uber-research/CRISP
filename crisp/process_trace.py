@@ -371,8 +371,11 @@ def initArgs():
         default=False,
         required=False,
         help=(
-            "Compute per-method Drag/Slack (see slack_drag.py) and emit a slackDrag.csv "
-            "output file (default=false). Opt-in: when not set, output is unchanged."
+            "Additionally compute per-method Slack (see slack_drag.py) in the slackDrag.csv "
+            "output file (default=false). Drag is always computed and included in that file "
+            "regardless of this flag -- it's cheap and never affects latency-savings "
+            "projections. Slack is opt-in because it's much more expensive on large/"
+            "multi-root traces and is purely informational."
         ),
     )
 
@@ -647,9 +650,15 @@ def process(filename: str, config: common.Config) -> Any:
         {},
     )
 
-    if config.computeSlackDrag and metrics:
+    if metrics:
+        # Drag is always computed: it's cheap (sub-millisecond, even on huge traces)
+        # and never affects any latency-savings projection, so there's no reason to
+        # gate it. Slack stays opt-in behind --computeSlackDrag since it requires
+        # building a DependencyGraph, which is orders of magnitude more expensive on
+        # large/multi-root traces and -- unlike drag -- is only ever consumed by the
+        # informational slackDrag.csv report (see aggregate_drag_slack_by_callpath).
         drag = graph.calculateDrag(cp=criticalPath)
-        slack = graph.calculateSlack(cp=criticalPath)
+        slack = graph.calculateSlack(cp=criticalPath) if config.computeSlackDrag else None
         metrics.slackDragPerCallPath = aggregate_drag_slack_by_callpath(graph, drag, slack)
 
     logging.debug("critical path: %s", criticalPath)
@@ -2096,11 +2105,12 @@ def performCriticalPathAnalysis(c: common.Config) -> int:
     logging.info("Starting genCrossRegionCallsCSVFile")
     crossRegionCallsCSVFile = genCrossRegionCallsCSVFile(metrics, c, filename=common.CROSS_REGION_CALLS_CSV)
 
-    slackDragCSVFile = None
-    if c.computeSlackDrag:
-        logging.info("Starting genSlackDragCSVFile")
-        mergedSlackDragPerCallPath = merge_per_method_slack_drag(m.slackDragPerCallPath for m in metrics if m.slackDragPerCallPath)
-        slackDragCSVFile = genSlackDragCSVFile(mergedSlackDragPerCallPath, c, filename=common.SLACK_DRAG_CSV)
+    # Unconditional: drag is always computed above (see process()), so this report is
+    # always meaningful. The slack columns are simply 0.0 for every call path unless
+    # --computeSlackDrag was also passed.
+    logging.info("Starting genSlackDragCSVFile")
+    mergedSlackDragPerCallPath = merge_per_method_slack_drag(m.slackDragPerCallPath for m in metrics if m.slackDragPerCallPath)
+    slackDragCSVFile = genSlackDragCSVFile(mergedSlackDragPerCallPath, c, filename=common.SLACK_DRAG_CSV)
 
     logging.info("Starting genHypoLatencyCSVFile")
     hypoLatencyCSVFile = genHypoLatencyCSVFile(headLatencyPercentile, hypoLatencyPercentile, c)
@@ -2170,6 +2180,16 @@ def lightProcess(c: common.Config) -> int:
     outputDir = c.getOutputDir()
     cctFile = os.path.join(outputDir, "light-flame-graph-P100.cct")
     _writeCCTOutputs(cctFile, flameGraphStr, merged_cpp, c.maxExemplars)
+
+    # Drag is always populated per trace (see process()); slack columns are 0.0
+    # unless --computeSlackDrag was also passed. Unconditional, like the heavy
+    # path's genSlackDragCSVFile call, since drag alone is cheap and always
+    # meaningful.
+    logging.info("Starting genSlackDragCSVFile")
+    mergedSlackDragPerCallPath = merge_per_method_slack_drag(
+        m.slackDragPerCallPath for m in validMetrics if m.slackDragPerCallPath
+    )
+    genSlackDragCSVFile(mergedSlackDragPerCallPath, c, filename=common.SLACK_DRAG_CSV)
 
     if c.projectionEnabled:
         projected_metrics = [

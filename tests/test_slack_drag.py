@@ -7,6 +7,7 @@ import pytest
 from crisp.graph import Graph, GraphNode
 from crisp.shared.models import SpanKind
 from crisp.dependency_graph import DependencyGraph
+from crisp.retimer import Retimer
 from crisp.slack_drag import (
     Drag,
     Slack,
@@ -958,6 +959,61 @@ def test_graph_calculate_slack_hook_defaults_cp_and_dependency_graph():
     assert via_default.slack_per_span
 
 
+# --- Graph._dependencyGraphCache: reused across roots, invalidated by Retimer. ---
+
+
+def test_calculate_slack_builds_and_reuses_a_cached_dependency_graph():
+    g = happens_before_chain_constrains_sibling_slack_graph()
+    assert g._dependencyGraphCache is None
+
+    g.calculateSlack()
+    cached = g._dependencyGraphCache
+    assert cached is not None
+
+    # A second call (e.g. a second root of a multi-root trace) must reuse the
+    # exact same DependencyGraph instance rather than rebuilding it.
+    g.calculateSlack()
+    assert g._dependencyGraphCache is cached
+
+
+def test_calculate_slack_with_explicit_dependency_graph_does_not_touch_the_cache():
+    g = happens_before_chain_constrains_sibling_slack_graph()
+    explicit_dep = DependencyGraph(graph=g)
+
+    g.calculateSlack(dependency_graph=explicit_dep)
+
+    assert g._dependencyGraphCache is None
+
+
+def test_retimer_retime_node_invalidates_the_cached_dependency_graph():
+    g = happens_before_chain_constrains_sibling_slack_graph()
+    g.calculateSlack()
+    cached = g._dependencyGraphCache
+    assert cached is not None
+
+    Retimer(cached).retime_node(g, "A", 0, 50)
+
+    assert g._dependencyGraphCache is None
+    # Recomputing after a retime must rebuild against the new timings, not
+    # silently keep serving the stale cached instance.
+    g.calculateSlack()
+    assert g._dependencyGraphCache is not None
+    assert g._dependencyGraphCache is not cached
+
+
+def test_retimer_restore_invalidates_the_cached_dependency_graph():
+    g = happens_before_chain_constrains_sibling_slack_graph()
+    snapshot = Retimer.snapshot(g)
+    g.calculateSlack()
+    cached = g._dependencyGraphCache
+    assert cached is not None
+
+    Retimer(cached).retime_node(g, "A", 0, 50)
+    Retimer.restore(g, snapshot)
+
+    assert g._dependencyGraphCache is None
+
+
 # --- Realistic fixtures from test_cases/*.json. ---
 
 
@@ -1022,6 +1078,27 @@ def test_aggregate_by_callpath_distinct_paths_matches_per_span_values_exactly():
         assert entry.avg_drag == entry.total_drag
         assert entry.total_slack == slack.slack_per_span[node.sid]
         assert entry.avg_slack == entry.total_slack
+
+
+def test_aggregate_by_callpath_omitted_slack_defaults_every_span_to_zero():
+    # slack is optional (much more expensive than drag on large/multi-root traces
+    # and only ever consumed by the informational slackDrag.csv report). Omitting
+    # it must not change drag's aggregation at all, and every slack column must
+    # come back as a clean 0.0 rather than raising or being left unset.
+    g = linear_chain_graph()
+    cp = g.findCriticalPath()
+    drag = calculate_drag(g, cp)
+    slack = calculate_slack(g, cp)
+
+    agg_with_slack = aggregate_drag_slack_by_callpath(g, drag, slack)
+    agg_without_slack = aggregate_drag_slack_by_callpath(g, drag)
+
+    assert set(agg_without_slack.keys()) == set(agg_with_slack.keys())
+    for call_path, entry in agg_without_slack.items():
+        assert entry.total_slack == 0.0
+        assert entry.avg_slack == 0.0
+        assert entry.total_drag == agg_with_slack[call_path].total_drag
+        assert entry.avg_drag == agg_with_slack[call_path].avg_drag
 
 
 def test_aggregate_by_callpath_groups_same_callpath_and_averages():
