@@ -1,14 +1,28 @@
 import logging
 import multiprocessing as mp
+import os
 import shutil
 import time
 import traceback
+import typing
 from collections.abc import Callable
 
 import crisp.common as common
 
 # TODO: Dynamically compute the max workers based on the pipeline steps, number of cores, and intra-step parallelism.
 MAX_WORKERS = 16
+
+# Default ceiling on how long a single work item is allowed to run before we
+# forcibly terminate its worker process. Chosen from production experience:
+# legitimately slow (but successful) work items have taken up to ~90
+# minutes, while a genuinely hung one can block the pipeline for many hours
+# with no further progress. 120 minutes gives meaningful headroom over the
+# slowest known-good case while still bounding the pipeline to a sane
+# wall-clock limit. Overridable via env var so it can be tuned without a
+# code change. Only applies to non-serialize (multiprocess) phases: a
+# serialize=True handler runs synchronously in-process before the
+# timeout-aware wait loop is ever entered, so it is not bounded by this value.
+WORKITEM_TIMEOUT_SEC = int(os.environ.get("CRISP_WORKITEM_TIMEOUT_SEC", 120 * 60))
 
 
 class WorkItem:
@@ -44,8 +58,8 @@ def cleanupWrapper(c: common.Config, resultQ: mp.Queue) -> common.Config:
     )
 
 
-# TODO: Use timeouts to prevent waiting forever on an multiprocess handler.
-# TODO: Use error handling to prevent a crash in a single workitem bringing down the entire pipeline.
+# TODO: Use error handling to prevent an outright crash (e.g. OOM-kill, segfault) in a
+# single workitem's process from bringing down the entire pipeline.
 class Worker:
     def __init__(
         self,
@@ -67,6 +81,7 @@ class Worker:
         self.handler = handler
         self.serialize = serialize
         self.storedResult = None
+        self.startTime = time.time()
         # Nop for last item.
         if isLast:
             return
@@ -87,6 +102,9 @@ class Worker:
             raise ValueError("getWaitable called on a last worker")
         return self.q._reader
 
+    def elapsedSec(self) -> float:
+        return time.time() - self.startTime
+
     def getResult(self) -> common.Config:
         if self.isLast:
             return self.c
@@ -101,6 +119,102 @@ class Worker:
         self.q.close()
         return self.storedResult
 
+    def terminateForTimeout(self, workItemTimeoutSec: float = WORKITEM_TIMEOUT_SEC) -> common.Config:
+        """Force-terminate a worker process that exceeded workItemTimeoutSec.
+
+        Prevents a single stuck work item (e.g. an oversized or edge-case
+        trace) from blocking the entire pipeline stage indefinitely. If the
+        worker happened to finish right as it was being reaped, its real
+        result is returned unmodified; otherwise a Config marked as failed
+        is returned so it can flow through the pipeline like any other
+        (unsuccessful) result. Either way, the underlying process is
+        guaranteed to be terminated before this method returns -- a worker
+        that wrote its result but then hangs afterwards (e.g. in cleanup
+        code) would otherwise leak a zombie process.
+        """
+        logging.error(
+            f"{self.name}: work item for {self.c.serviceName}::{self.c.operationName} "
+            f"exceeded the {workItemTimeoutSec}s timeout after running for "
+            f"{self.elapsedSec():.0f}s; terminating its worker process.",
+        )
+        # Courtesy check: the worker may have finished right as we decided to
+        # reap it. Grab the result if it's already there instead of discarding it.
+        try:
+            self.storedResult = self.q.get_nowait()
+        except Exception:  # noqa: BLE001 - queue.Empty or a closed/broken queue, both mean "not ready".
+            self.storedResult = None
+
+        if self.storedResult is None:
+            self.c.failed = True
+            self.c.failedLog.append(
+                f"{self.name}: timed out after {self.elapsedSec():.0f}s (limit {workItemTimeoutSec}s)",
+            )
+            self.storedResult = self.c
+
+        if self.process.is_alive():
+            self.process.terminate()
+            self.process.join(timeout=10)
+        if self.process.is_alive():
+            self.process.kill()
+            self.process.join(timeout=10)
+        self.q.close()
+        return self.storedResult
+
+
+def _flushReadyItems(
+    name: str,
+    finishedRequests: dict,
+    outputQ: mp.Queue,
+    bottomMark: int,
+    processingOrder: int,
+) -> int:
+    """Push completed items to outputQ in their original input order.
+
+    Items may finish out of order (parallel workers), so we only emit a
+    contiguous prefix starting at bottomMark, buffering the rest until their
+    turn comes up. Returns the updated bottomMark.
+    """
+    for i in range(bottomMark, processingOrder):
+        if i in finishedRequests and i == bottomMark:
+            logging.info(name + ": enqueuing index " + str(i) + " to outputQ")
+            outputQ.put(finishedRequests[i])
+            del finishedRequests[i]
+            bottomMark += 1
+        else:
+            break
+    return bottomMark
+
+
+def _nextDeadlineSec(outstandingRequests: dict, workItemTimeoutSec: float = WORKITEM_TIMEOUT_SEC) -> typing.Optional[float]:
+    """Seconds until the soonest outstanding item hits workItemTimeoutSec.
+
+    Returns None if there's nothing outstanding to bound (mp.connection.wait
+    can then block indefinitely, matching the pre-timeout behavior for the
+    "just waiting on new input" case).
+    """
+    if not outstandingRequests:
+        return None
+    now = time.time()
+    remaining = [worker.startTime + workItemTimeoutSec - now for worker, _item, _order in outstandingRequests.values()]
+    return max(0.0, min(remaining))
+
+
+def _reapTimedOutWorkers(
+    name: str,
+    outstandingRequests: dict,
+    workItemTimeoutSec: float = WORKITEM_TIMEOUT_SEC,
+) -> list[tuple[int, "WorkItem"]]:
+    """Force-terminate and remove any outstanding item over workItemTimeoutSec."""
+    timedOutKeys = [f for f, (worker, _item, _order) in outstandingRequests.items() if worker.elapsedSec() >= workItemTimeoutSec]
+    if timedOutKeys:
+        logging.error(name + f": reaping {len(timedOutKeys)} timed-out work item(s)")
+    reaped = []
+    for f in timedOutKeys:
+        worker, item, order = outstandingRequests.pop(f)
+        item.config = worker.terminateForTimeout(workItemTimeoutSec)
+        reaped.append((order, item))
+    return reaped
+
 
 def pipelineWorker(
     name: str,
@@ -109,9 +223,10 @@ def pipelineWorker(
     errorQ: mp.Queue,
     handler: Callable[[common.Config, mp.Queue], None],
     serialize=False,
+    workItemTimeoutSec: float = WORKITEM_TIMEOUT_SEC,
 ):
     try:
-        pipelineWorkerReal(name, inputQ, outputQ, handler, serialize)
+        pipelineWorkerReal(name, inputQ, outputQ, handler, serialize, workItemTimeoutSec)
     except Exception as ex:
         exceptionStr = "".join(traceback.TracebackException.from_exception(ex).format())
         logging.error(f"Exception in pipelineWorker {name}: {exceptionStr}")
@@ -129,6 +244,7 @@ def pipelineWorkerReal(
     outputQ: mp.Queue,
     handler: Callable[[common.Config, mp.Queue], None],
     serialize=False,
+    workItemTimeoutSec: float = WORKITEM_TIMEOUT_SEC,
 ):
     if not name:
         raise ValueError("name cannot be None or empty")
@@ -165,7 +281,17 @@ def pipelineWorkerReal(
             logging.info(name + ": has nothing to wait for")
             break
 
-        finished = mp.connection.wait(waitList)
+        # Bound the wait so a hung work item can't block this stage forever;
+        # wake up in time to reap anything that has exceeded workItemTimeoutSec.
+        finished = mp.connection.wait(waitList, timeout=_nextDeadlineSec(outstandingRequests, workItemTimeoutSec))
+
+        if not finished:
+            # Nothing completed before the deadline: reap whatever timed out and
+            # loop back around to recompute waitList/deadlines from scratch.
+            finishedRequests.update(dict(_reapTimedOutWorkers(name, outstandingRequests, workItemTimeoutSec)))
+            bottomMark = _flushReadyItems(name, finishedRequests, outputQ, bottomMark, processingOrder)
+            continue
+
         for f in finished:
             if len(qGet) > 0 and f == qGet[0]:  # new item in inputQ
                 logging.info(name + ": has new item in the inputQ")
@@ -223,17 +349,7 @@ def pipelineWorkerReal(
                 # remove the finished item from the outstandingRequests.
                 del outstandingRequests[f]
                 finishedRequests[order] = itemToPush
-                # push all items from the bottomMark out until sequential order is preserved in the outputQ.
-                for i in range(bottomMark, processingOrder):
-                    if i in finishedRequests and i == bottomMark:
-                        logging.info(
-                            name + ": enqueuing index " + str(i) + " to outputQ",
-                        )
-                        outputQ.put(finishedRequests[i])
-                        del finishedRequests[i]
-                        bottomMark += 1
-                    else:
-                        break
+                bottomMark = _flushReadyItems(name, finishedRequests, outputQ, bottomMark, processingOrder)
     outputQ.put(lastItem)
     outputQ.close()
     logging.info(name + ": finished")
@@ -243,6 +359,7 @@ def Pipeline(
     workItemsIn: list[WorkItem],
     lst: list[common.PipelinePhase],
     allSerilized=False,
+    workItemTimeoutSec: float = WORKITEM_TIMEOUT_SEC,
 ):
     # Create the last item.
     w = WorkItem(len(workItemsIn), common.Config(numTrace=0), True)
@@ -279,6 +396,7 @@ def Pipeline(
                 errQ,
                 lst[i].func,
                 shouldSerialize,
+                workItemTimeoutSec,
             ),
         )
         workers.append(worker)
