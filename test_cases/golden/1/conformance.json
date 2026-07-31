@@ -1,0 +1,22 @@
+{
+  "report_window_1": [
+    {
+      "base": {
+        "duration": "0.000100s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "exemplars": [
+            {
+              "span_id": "A",
+              "trace_id": "1"
+            }
+          ],
+          "operation_name": "O1",
+          "service": "S1"
+        }
+      ]
+    }
+  ]
+}

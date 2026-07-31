@@ -25,6 +25,7 @@ from crisp.cct_utils import (
     create_protobuf_response_with_exemplars,
     parse_cct_file,
 )
+from crisp.conformance import write_conformance_outputs
 from crisp.graph import Graph, accumulateInDict
 from crisp.metrics.aggregators import (
     MergeCallPathProfilesWithExample,
@@ -355,6 +356,18 @@ def initArgs():
     )
 
     argParser.add_argument(
+        "--conformance",
+        dest="conformance",
+        action="store_true",
+        default=False,
+        required=False,
+        help=(
+            "Write deterministic conformance outputs (conformance.cct, conformance.json) "
+            "for cross-implementation testing; runs the light-mode pipeline. See CONFORMANCE.md."
+        ),
+    )
+
+    argParser.add_argument(
         "--maxExemplars",
         dest="maxExemplars",
         action="store",
@@ -481,6 +494,7 @@ def initArgs():
         deltaTargetService=deltaTargetService,
         deltaTargetOperation=deltaTargetOperation,
         lightMode=lightMode,
+        conformance=args.conformance,
         mergeAllRoots=args.mergeAllRoots,
         maxExemplars=maxExemplars,
         jaegerQueryUrl=args.jaegerQueryUrl,
@@ -2181,6 +2195,9 @@ def lightProcess(c: common.Config) -> int:
     cctFile = os.path.join(outputDir, "light-flame-graph-P100.cct")
     _writeCCTOutputs(cctFile, flameGraphStr, merged_cpp, c.maxExemplars)
 
+    if c.conformance:
+        write_conformance_outputs(outputDir, flameGraphStr, merged_cpp, c.maxExemplars)
+
     # Drag is always populated per trace (see process()); slack columns are 0.0
     # unless --computeSlackDrag was also passed. Unconditional, like the heavy
     # path's genSlackDragCSVFile call, since drag alone is cheap and always
@@ -2234,7 +2251,7 @@ def processReal(c: common.Config) -> int:
 
 def main() -> int:
     c = initArgs()
-    if c.lightMode:
+    if c.lightMode or c.conformance:
         return lightProcess(c)
     return processReal(c)
 

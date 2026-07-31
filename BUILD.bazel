@@ -10,6 +10,7 @@ py_test(
     deps = [
         "//crisp:cli",
         "//crisp:common",
+        "//crisp:conformance",
         "//crisp:configuration",
         "//crisp:constants",
         "//crisp:graph",
@@ -142,6 +143,20 @@ py_test(
         "//crisp:process_trace",
         "//crisp:common",
         "@pypi//psutil",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_conformance",
+    size = "medium",
+    srcs = ["tests/test_conformance.py"],
+    data = glob(["test_cases/**"]),
+    deps = [
+        "//crisp:common",
+        "//crisp:conformance",
+        "//crisp:process_trace",
+        "@pypi//pytest",
     ],
     imports = ["."],
 )

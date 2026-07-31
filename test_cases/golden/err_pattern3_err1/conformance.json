@@ -1,0 +1,70 @@
+{
+  "report_window_1": [
+    {
+      "base": {
+        "duration": "0s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "exemplars": [
+            {
+              "span_id": "A",
+              "trace_id": "err1"
+            }
+          ],
+          "operation_name": "O1",
+          "service": "S1"
+        }
+      ]
+    },
+    {
+      "base": {
+        "duration": "0.000070s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "operation_name": "O1",
+          "service": "S1"
+        },
+        {
+          "exemplars": [
+            {
+              "span_id": "B",
+              "trace_id": "err1"
+            }
+          ],
+          "operation_name": "O2",
+          "service": "S2"
+        }
+      ]
+    },
+    {
+      "base": {
+        "duration": "0.000030s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "operation_name": "O1",
+          "service": "S1"
+        },
+        {
+          "operation_name": "O2",
+          "service": "S2"
+        },
+        {
+          "exemplars": [
+            {
+              "span_id": "C",
+              "trace_id": "err1"
+            }
+          ],
+          "operation_name": "O3",
+          "service": "S3"
+        }
+      ]
+    }
+  ]
+}
