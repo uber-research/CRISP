@@ -162,6 +162,7 @@ class Config:
         deltaTargetService: typing.Optional[str] = None,
         deltaTargetOperation: typing.Optional[str] = None,
         lightMode: bool = False,
+        conformance: bool = False,
         mergeAllRoots: bool = True,
         maxExemplars: int = 3,
         computeSlackDrag: bool = False,
@@ -209,6 +210,7 @@ class Config:
         self.errorAnalysis = errorAnalysis
         self.ignoreTestTraces = ignoreTestTraces
         self.lightMode = lightMode
+        self.conformance = conformance
         self.mergeAllRoots = mergeAllRoots
         self.maxExemplars = maxExemplars
         self.computeSlackDrag = computeSlackDrag
