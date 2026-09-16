@@ -1,8 +1,17 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "jaeger",
-    srcs = ["types.go"],
+    srcs = [
+        "merge.go",
+        "types.go",
+    ],
     importpath = "github.com/uber-research/CRISP/go/crisp/jaeger",
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "jaeger_test",
+    srcs = ["merge_test.go"],
+    embed = [":jaeger"],
 )
