@@ -1,9 +1,19 @@
 load("@rules_python//python:py_library.bzl", "py_library")
 load("@rules_python//python:py_test.bzl", "py_test")
 
+# Exposed cross-package so the Go port's tests (go/crisp) can share the same
+# fixtures used by the Python conformance/e2e tests.
+filegroup(
+    name = "test_cases",
+    srcs = glob(["test_cases/**"]),
+    visibility = ["//visibility:public"],
+)
+
 py_test(
     name = "pytest",
-    size = "small",
+    # Full Python suite takes ~40s; "small" (60s) leaves no headroom once CI
+    # also builds the Go toolchain in the same `bazel test //...` invocation.
+    size = "medium",
     srcs = ["pytest_runner.py"],
     main = "pytest_runner.py",
     data = glob(["tests/**"]) + glob(["test_cases/**"]) + ["pyproject.toml", "services.yaml"],

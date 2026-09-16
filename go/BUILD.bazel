@@ -1,0 +1,11 @@
+# gazelle:prefix github.com/uber-research/CRISP/go
+
+load("@gazelle//:def.bzl", "gazelle")
+
+# Scoped to the go/ directory only (args = ["go"]) so this never touches the
+# hand-crafted Python BUILD.bazel files elsewhere in the repo -- by default
+# gazelle walks from the workspace root regardless of where this rule lives.
+gazelle(
+    name = "gazelle",
+    args = ["go"],
+)

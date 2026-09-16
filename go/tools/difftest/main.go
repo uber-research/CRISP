@@ -1,0 +1,470 @@
+// Command difftest is the differential test harness for the CRISP Go port.
+// It runs a reference and a candidate implementation over a corpus of Jaeger
+// trace JSONs and compares their conformance outputs (conformance.cct, and
+// structurally conformance.json).
+//
+// Modes:
+//
+//	golden: byte-compare the candidate against the committed goldens under
+//	test_cases/golden/. Strict: no re-sorting, so output ordering bugs are
+//	caught too. This is the per-PR tier.
+//
+//	corpus: compare the candidate against a local reference cache, sorting
+//	both sides' lines first (content comparison for large corpora whose
+//	references are cached, not committed -- e.g. Zenodo shards). Populate or
+//	refresh the cache with -refresh, which runs the reference side.
+//
+// The (service, operation) root is derived per trace via crisp.DeriveRootSpan,
+// mirroring scripts/generate_goldens.py -- no manifest is needed.
+//
+// Phase 1 self-check: with -candidate defaulting to the Python reference
+// itself, both modes must be 100% green (Python-vs-Python).
+//
+// Command templates are split on whitespace and then {file}, {service} and
+// {operation} are substituted per trace, so substituted values may contain
+// spaces. Templates run with cwd = repo root and must write conformance.cct
+// (and conformance.json) next to the trace file they are given.
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/uber-research/CRISP/go/crisp"
+	"github.com/uber-research/CRISP/go/crisp/jaeger"
+)
+
+const (
+	statusPass  = "PASS"
+	statusFail  = "FAIL"
+	statusSkip  = "SKIP"
+	statusStale = "STALE"
+)
+
+var (
+	mode      = flag.String("mode", "golden", "golden (compare against committed goldens) | corpus (compare against reference cache)")
+	corpus    = flag.String("corpus", "test_cases", "directory of trace JSONs (walked recursively; dirs named 'golden' or starting with '.' are skipped)")
+	goldenDir = flag.String("golden", "test_cases/golden", "directory of committed goldens (golden mode)")
+	cacheDir  = flag.String("cache", ".difftest-cache", "reference output cache (corpus mode)")
+	refresh   = flag.Bool("refresh", false, "corpus mode: re-run the reference side and rewrite the cache before checking")
+	reference = flag.String("reference", "", "reference command template; default: the Python conformance CLI (auto-detected interpreter)")
+	candidate = flag.String("candidate", "", "candidate command template; default: same as reference (Python-vs-Python self-check)")
+	repoRoot  = flag.String("repo-root", "", "repo root used as cwd for command templates; default: walk up from cwd looking for crisp/process_trace.py")
+	jobs      = flag.Int("jobs", max(1, runtime.NumCPU()/2), "parallel trace workers")
+	timeout   = flag.Duration("timeout", 120*time.Second, "per-trace command timeout")
+	verbose   = flag.Bool("v", false, "print per-trace results as they complete")
+)
+
+type traceCase struct {
+	name string // fixture name: path relative to corpus, sans .json, "/" -> "_"
+	path string
+}
+
+type result struct {
+	name   string
+	status string
+	detail string
+}
+
+func main() {
+	flag.Parse()
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "difftest: %v\n", err)
+		os.Exit(2)
+	}
+}
+
+func run() error {
+	root, err := resolveRepoRoot(*repoRoot)
+	if err != nil {
+		return err
+	}
+	refTmpl, err := resolveTemplate(*reference, root)
+	if err != nil {
+		return fmt.Errorf("reference: %w", err)
+	}
+	candTmpl := *candidate
+	if candTmpl == "" {
+		candTmpl = refTmpl
+	}
+
+	traces, err := discoverTraces(*corpus)
+	if err != nil {
+		return err
+	}
+	if len(traces) == 0 {
+		return fmt.Errorf("no trace JSONs found under %s", *corpus)
+	}
+
+	switch *mode {
+	case "golden", "corpus":
+	default:
+		return fmt.Errorf("unknown -mode %q", *mode)
+	}
+	if *mode == "corpus" && *refresh {
+		if err := refreshCache(traces, root, refTmpl); err != nil {
+			return err
+		}
+	}
+
+	results := make(chan result, len(traces))
+	work := make(chan traceCase)
+	var wg sync.WaitGroup
+	for i := 0; i < *jobs; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for tc := range work {
+				results <- checkTrace(tc, root, candTmpl)
+			}
+		}()
+	}
+	go func() {
+		for _, tc := range traces {
+			work <- tc
+		}
+		close(work)
+		wg.Wait()
+		close(results)
+	}()
+
+	var rs []result
+	for r := range results {
+		rs = append(rs, r)
+		if *verbose && r.status != statusPass {
+			fmt.Printf("%-5s %s: %s\n", r.status, r.name, r.detail)
+		}
+	}
+	sort.Slice(rs, func(i, j int) bool { return rs[i].name < rs[j].name })
+
+	counts := map[string]int{}
+	for _, r := range rs {
+		counts[r.status]++
+		if r.status == statusPass {
+			continue
+		}
+		fmt.Printf("%-5s %s: %s\n", r.status, r.name, r.detail)
+	}
+	fmt.Printf("\n%d/%d passed", counts[statusPass], len(rs))
+	if counts[statusSkip] > 0 {
+		fmt.Printf(" (%d skipped)", counts[statusSkip])
+	}
+	fmt.Println()
+	if counts[statusFail] > 0 || counts[statusStale] > 0 {
+		return errors.New("mismatches found")
+	}
+	return nil
+}
+
+// checkTrace runs the candidate on one trace and compares its output against
+// the golden (golden mode) or the reference cache (corpus mode).
+func checkTrace(tc traceCase, root, candTmpl string) result {
+	data, err := os.ReadFile(tc.path)
+	if err != nil {
+		return result{tc.name, statusFail, err.Error()}
+	}
+	trace, err := jaeger.Decode(data)
+	if err != nil {
+		return result{tc.name, statusSkip, fmt.Sprintf("cannot decode: %v", err)}
+	}
+	service, operation, err := crisp.DeriveRootSpan(trace)
+	if err != nil {
+		return result{tc.name, statusSkip, fmt.Sprintf("cannot derive root span: %v", err)}
+	}
+
+	tmp, err := os.MkdirTemp("", "crisp-difftest-")
+	if err != nil {
+		return result{tc.name, statusFail, err.Error()}
+	}
+	defer os.RemoveAll(tmp)
+	tmpTrace := filepath.Join(tmp, filepath.Base(tc.path))
+	if err := os.WriteFile(tmpTrace, data, 0o644); err != nil {
+		return result{tc.name, statusFail, err.Error()}
+	}
+
+	cct, jsonOut, err := runSide(candTmpl, root, tmpTrace, service, operation)
+	if err != nil {
+		return result{tc.name, statusFail, err.Error()}
+	}
+
+	if *mode == "golden" {
+		return compareGolden(tc.name, cct, jsonOut)
+	}
+	return compareCache(tc.name, data, cct)
+}
+
+// compareGolden compares candidate output byte-wise against the committed
+// golden (no re-sorting: ordering bugs must fail), plus a structural
+// comparison of conformance.json.
+func compareGolden(name string, cct, jsonOut []byte) result {
+	goldenCCT, err := os.ReadFile(filepath.Join(*goldenDir, name, "conformance.cct"))
+	if err != nil {
+		return result{name, statusFail, fmt.Sprintf("no committed golden: %v", err)}
+	}
+	if !bytes.Equal(cct, goldenCCT) {
+		return result{name, statusFail, diffReport("conformance.cct", goldenCCT, cct)}
+	}
+	goldenJSON, err := os.ReadFile(filepath.Join(*goldenDir, name, "conformance.json"))
+	if err != nil {
+		return result{name, statusFail, fmt.Sprintf("no committed golden: %v", err)}
+	}
+	if !jsonEqual(goldenJSON, jsonOut) {
+		return result{name, statusFail, "conformance.json differs structurally (parse both sides and field-compare to locate)"}
+	}
+	return result{name, statusPass, ""}
+}
+
+// compareCache compares candidate output against the cached reference,
+// canonicalizing both sides (line sort) first -- corpus mode checks content,
+// leaving ordering enforcement to the golden tier.
+func compareCache(name string, traceData, cct []byte) result {
+	cachePath := filepath.Join(*cacheDir, name+".cct")
+	ref, err := os.ReadFile(cachePath)
+	if err != nil {
+		return result{name, statusStale, "no cached reference; re-run with -refresh"}
+	}
+	hashPath := filepath.Join(*cacheDir, name+".sha256")
+	wantHash, err := os.ReadFile(hashPath)
+	if err != nil {
+		return result{name, statusStale, "no cached trace hash; re-run with -refresh"}
+	}
+	if got := hashHex(traceData); got != strings.TrimSpace(string(wantHash)) {
+		return result{name, statusStale, "trace changed since reference was cached; re-run with -refresh"}
+	}
+	got := canonicalize(cct)
+	want := canonicalize(ref)
+	if !bytes.Equal(got, want) {
+		return result{name, statusFail, diffReport("conformance.cct (canonicalized)", want, got)}
+	}
+	return result{name, statusPass, ""}
+}
+
+// refreshCache runs the reference side over the whole corpus, writing
+// canonicalized conformance.cct output and a trace-content hash per trace.
+func refreshCache(traces []traceCase, root, refTmpl string) error {
+	fmt.Printf("refreshing reference cache in %s (%d traces)\n", *cacheDir, len(traces))
+	for _, tc := range traces {
+		data, err := os.ReadFile(tc.path)
+		if err != nil {
+			return err
+		}
+		trace, err := jaeger.Decode(data)
+		if err != nil {
+			fmt.Printf("SKIP %s: cannot decode: %v\n", tc.name, err)
+			continue
+		}
+		service, operation, err := crisp.DeriveRootSpan(trace)
+		if err != nil {
+			fmt.Printf("SKIP %s: cannot derive root span: %v\n", tc.name, err)
+			continue
+		}
+		tmp, err := os.MkdirTemp("", "crisp-difftest-")
+		if err != nil {
+			return err
+		}
+		tmpTrace := filepath.Join(tmp, filepath.Base(tc.path))
+		if err := os.WriteFile(tmpTrace, data, 0o644); err != nil {
+			os.RemoveAll(tmp)
+			return err
+		}
+		cct, _, err := runSide(refTmpl, root, tmpTrace, service, operation)
+		os.RemoveAll(tmp)
+		if err != nil {
+			return fmt.Errorf("reference failed on %s: %w", tc.name, err)
+		}
+		if err := os.MkdirAll(*cacheDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(*cacheDir, tc.name+".cct"), canonicalize(cct), 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(*cacheDir, tc.name+".sha256"), []byte(hashHex(data)+"\n"), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// runSide executes a command template against a trace copy and returns the
+// conformance outputs written next to it.
+func runSide(tmpl, root, tracePath, service, operation string) (cct, jsonOut []byte, err error) {
+	repl := strings.NewReplacer("{file}", tracePath, "{service}", service, "{operation}", operation)
+	parts := strings.Fields(tmpl)
+	argv := make([]string, 0, len(parts))
+	for _, p := range parts {
+		argv = append(argv, repl.Replace(p))
+	}
+	if len(argv) == 0 {
+		return nil, nil, errors.New("empty command template")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = root
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if runErr := cmd.Run(); runErr != nil {
+		snip := stderr.String()
+		if len(snip) > 2000 {
+			snip = snip[:2000] + "... (truncated)"
+		}
+		return nil, nil, fmt.Errorf("command failed: %v\nstderr: %s", runErr, snip)
+	}
+	outDir := filepath.Dir(tracePath)
+	cct, err = os.ReadFile(filepath.Join(outDir, "conformance.cct"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("candidate did not produce conformance.cct: %v", err)
+	}
+	jsonOut, _ = os.ReadFile(filepath.Join(outDir, "conformance.json")) // optional in corpus mode
+	return cct, jsonOut, nil
+}
+
+// canonicalize mirrors crisp/conformance.py canonical_cct: drop empty lines,
+// sort by code point (identical to UTF-8 byte order), exactly one trailing
+// newline.
+func canonicalize(b []byte) []byte {
+	var lines [][]byte
+	for _, line := range bytes.Split(b, []byte("\n")) {
+		if len(line) > 0 {
+			lines = append(lines, line)
+		}
+	}
+	sort.Slice(lines, func(i, j int) bool { return bytes.Compare(lines[i], lines[j]) < 0 })
+	if len(lines) == 0 {
+		return nil
+	}
+	return append(bytes.Join(lines, []byte("\n")), '\n')
+}
+
+// diffReport describes the first differing line between want and got, with a
+// two-line context window from each side.
+func diffReport(label string, want, got []byte) string {
+	wantLines := bytes.Split(want, []byte("\n"))
+	gotLines := bytes.Split(got, []byte("\n"))
+	i := 0
+	for i < len(wantLines) && i < len(gotLines) && bytes.Equal(wantLines[i], gotLines[i]) {
+		i++
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s first differs at line %d", label, i+1)
+	window := func(tag string, lines [][]byte) {
+		lo := max(0, i-2)
+		hi := min(len(lines), i+3)
+		for j := lo; j < hi; j++ {
+			marker := "  "
+			if j == i {
+				marker = "> "
+			}
+			fmt.Fprintf(&b, "\n%s %s%d| %s", tag, marker, j+1, lines[j])
+		}
+	}
+	window("ref", wantLines)
+	window("got", gotLines)
+	return b.String()
+}
+
+// jsonEqual reports whether two JSON documents are structurally equal
+// (numbers compared exactly via json.Number).
+func jsonEqual(a, b []byte) bool {
+	decode := func(data []byte) (any, error) {
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
+		var v any
+		return v, dec.Decode(&v)
+	}
+	va, err := decode(a)
+	if err != nil {
+		return false
+	}
+	vb, err := decode(b)
+	if err != nil {
+		return false
+	}
+	return reflect.DeepEqual(va, vb)
+}
+
+func hashHex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// discoverTraces walks corpus for *.json files, skipping the golden output
+// directory and hidden directories.
+func discoverTraces(corpus string) ([]traceCase, error) {
+	var traces []traceCase
+	err := filepath.WalkDir(corpus, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != corpus && (d.Name() == "golden" || strings.HasPrefix(d.Name(), ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".json") {
+			return nil
+		}
+		rel, err := filepath.Rel(corpus, path)
+		if err != nil {
+			return err
+		}
+		name := strings.TrimSuffix(rel, ".json")
+		name = strings.ReplaceAll(name, string(filepath.Separator), "_")
+		traces = append(traces, traceCase{name: name, path: path})
+		return nil
+	})
+	return traces, err
+}
+
+// resolveRepoRoot finds the repo root (the directory the Python CLI must run
+// from) by walking up from cwd looking for crisp/process_trace.py.
+func resolveRepoRoot(flagVal string) (string, error) {
+	if flagVal != "" {
+		return filepath.Abs(flagVal)
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "crisp", "process_trace.py")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("could not find repo root (crisp/process_trace.py); pass -repo-root")
+		}
+		dir = parent
+	}
+}
+
+// resolveTemplate returns the reference command template, defaulting to the
+// Python conformance CLI with the repo's .venv interpreter when present.
+func resolveTemplate(flagVal, root string) (string, error) {
+	if flagVal != "" {
+		return flagVal, nil
+	}
+	python := "python3"
+	if _, err := os.Stat(filepath.Join(root, ".venv", "bin", "python")); err == nil {
+		python = filepath.Join(root, ".venv", "bin", "python")
+	}
+	return python + " -m crisp.process_trace --file {file} -s {service} -a {operation} --rootTrace --conformance", nil
+}
