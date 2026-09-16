@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_binary(
+    name = "difftest",
+    embed = [":difftest_lib"],
+    importpath = "github.com/uber-research/CRISP/go/tools/difftest",
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "difftest_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/uber-research/CRISP/go/tools/difftest",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/crisp",
+        "//go/crisp/jaeger",
+    ],
+)

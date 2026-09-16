@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "crisp",
+    srcs = [
+        "classify.go",
+        "node.go",
+        "parse.go",
+        "root_span.go",
+        "span_utils.go",
+    ],
+    importpath = "github.com/uber-research/CRISP/go/crisp",
+    visibility = ["//visibility:public"],
+    deps = ["//go/crisp/jaeger"],
+)
+
+go_test(
+    name = "crisp_test",
+    srcs = [
+        "parse_test.go",
+        "root_span_test.go",
+    ],
+    data = ["//:test_cases"],  # keep
+    embed = [":crisp"],
+    deps = ["//go/crisp/jaeger"],
+)
