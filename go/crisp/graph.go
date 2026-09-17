@@ -101,10 +101,13 @@ type Graph struct {
 // operations, and match tags.
 //
 // Python signals construction failure by logging and leaving rootNode None
-// on a half-initialized Graph; NewGraph instead returns a non-nil error in
-// exactly those cases (parse failure, no roots, multiple roots under
+// on a half-initialized Graph; NewGraph mirrors that by returning the Graph
+// with RootNode == nil (and a nil error) for no roots, multiple roots under
 // rootTrace, root service/operation mismatch, or no matching node under
-// rootTrace=false).
+// rootTrace=false. Callers skip such traces, like Python's process(). A
+// non-nil error is reserved for structurally undecodable trace data
+// (ParseTrace failure), which Python's json.load/parseNode would also
+// reject.
 func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *GraphOptions) (*Graph, error) {
 	o := GraphOptions{}
 	if opts != nil {
@@ -190,21 +193,23 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 	// port verifies against goldens via the difftest harness instead.)
 
 	if len(potentialRoots) == 0 {
-		return nil, fmt.Errorf("no root node in file %s", o.Filename)
+		// Python: logging.warning("no root node in file ...") and return.
+		return g, nil
 	}
 
 	if rootTrace {
 		if len(potentialRoots) != 1 {
-			return nil, fmt.Errorf("%d roots node in file %s", len(potentialRoots), o.Filename)
+			// Python: logging.warning("%d roots node in file ...") and return.
+			return g, nil
 		}
-		if err := g.checkRootAndWarn(potentialRoots[0], rootTrace); err != nil {
-			return nil, err
+		if !g.checkRootAndWarn(potentialRoots[0], rootTrace) {
+			return g, nil
 		}
 		g.RootNode = potentialRoots[0]
 	} else {
 		for _, candidate := range potentialRoots {
 			someRoot := g.findARoot(candidate)
-			if someRoot == nil || g.checkRootAndWarn(someRoot, rootTrace) != nil {
+			if someRoot == nil || !g.checkRootAndWarn(someRoot, rootTrace) {
 				continue
 			}
 			// Detach someRoot from its parent. Python does not remove it
@@ -215,10 +220,14 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 			g.RootNode = someRoot
 			break
 		}
-		if g.RootNode == nil {
-			return nil, fmt.Errorf(
-				"rootTrace == false but no matching node found in file %s", o.Filename)
-		}
+		// Python: logging.warning("rootTrace == false but no matching node
+		// found ...") and return with rootNode still None.
+	}
+
+	// Python's early returns skip the rest of __init__ when no root was
+	// selected.
+	if g.RootNode == nil {
+		return g, nil
 	}
 
 	g.sanitizeOverflowingChildren(g.RootNode)
@@ -311,19 +320,12 @@ func (g *Graph) findARoot(node *Node) *Node {
 }
 
 // checkRootAndWarn mirrors graph.py: the root's service and operation must
-// match the requested ones. A process ID missing from the process table
-// yields an empty service name here, where Python would raise KeyError out
-// of Graph.__init__; both prevent the node from becoming the root.
-func (g *Graph) checkRootAndWarn(node *Node, rootTrace bool) error {
-	if g.ProcessName[node.ProcessID] != g.ServiceName || node.OpName != g.OperationName {
-		return fmt.Errorf(
-			"rootTrace == %t, expected serviceName=%s and found %s. "+
-				"Expected operationName=%s and found %s in file %s",
-			rootTrace, g.ServiceName, g.ProcessName[node.ProcessID],
-			g.OperationName, node.OpName, g.Filename,
-		)
-	}
-	return nil
+// match the requested ones (Python logs a warning and returns False). A
+// process ID missing from the process table yields an empty service name
+// here, where Python would raise KeyError out of Graph.__init__; both
+// prevent the node from becoming the root.
+func (g *Graph) checkRootAndWarn(node *Node, rootTrace bool) bool {
+	return g.ProcessName[node.ProcessID] == g.ServiceName && node.OpName == g.OperationName
 }
 
 // removeExcludedOps mirrors graph.py: subtrees whose (service, operation) is

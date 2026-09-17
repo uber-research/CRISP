@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/uber-research/CRISP/go/crisp/jaeger"
@@ -110,9 +109,14 @@ func TestNewGraph_RootTraceRequiresSingleRoot(t *testing.T) {
 		mkSpan("R1", "opA", "p1", 0, 100, nil),
 		mkSpan("R2", "opA", "p1", 0, 100, nil),
 	)
-	_, err := NewGraph(trace, "svcA", "opA", nil)
-	if err == nil || !strings.Contains(err.Error(), "2 roots") {
-		t.Errorf("expected '2 roots' error, got %v", err)
+	// Python logs a warning and leaves rootNode None (the trace is
+	// skipped); it does not raise.
+	g, err := NewGraph(trace, "svcA", "opA", nil)
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	if g.RootNode != nil {
+		t.Errorf("RootNode = %v, want nil (multi-root trace skipped)", g.RootNode.SID)
 	}
 }
 
@@ -123,9 +127,12 @@ func TestNewGraph_NoRoots(t *testing.T) {
 		mkSpan("A", "opA", "p1", 0, 100, []jaeger.Reference{childOf("B")}),
 		mkSpan("B", "opA", "p1", 0, 100, []jaeger.Reference{childOf("A")}),
 	)
-	_, err := NewGraph(trace, "svcA", "opA", nil)
-	if err == nil || !strings.Contains(err.Error(), "no root node") {
-		t.Errorf("expected 'no root node' error, got %v", err)
+	g, err := NewGraph(trace, "svcA", "opA", nil)
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	if g.RootNode != nil {
+		t.Errorf("RootNode = %v, want nil (rootless trace skipped)", g.RootNode.SID)
 	}
 }
 
@@ -134,8 +141,14 @@ func TestNewGraph_RootMismatch(t *testing.T) {
 		map[string]jaeger.Process{"p1": mkProc("svcA")},
 		mkSpan("R", "opA", "p1", 0, 100, nil),
 	)
-	if _, err := NewGraph(trace, "svcX", "opY", nil); err == nil {
-		t.Fatal("expected root mismatch error")
+	// Python's checkRootAndWarn returns False and __init__ returns with
+	// rootNode None.
+	g, err := NewGraph(trace, "svcX", "opY", nil)
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	if g.RootNode != nil {
+		t.Errorf("RootNode = %v, want nil (mismatched root skipped)", g.RootNode.SID)
 	}
 }
 
@@ -177,9 +190,13 @@ func TestNewGraph_FindARoot(t *testing.T) {
 		t.Errorf("former parent's children = %v, want [M] (Python keeps the stale entry)", got)
 	}
 
-	// No matching node anywhere -> error.
-	if _, err := NewGraph(trace, "svcZ", "opZ", opts); err == nil {
-		t.Fatal("expected 'no matching node' error")
+	// No matching node anywhere -> rootNode stays None in Python (skipped).
+	g2, err := NewGraph(trace, "svcZ", "opZ", opts)
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	if g2.RootNode != nil {
+		t.Errorf("RootNode = %v, want nil (no matching node)", g2.RootNode.SID)
 	}
 }
 
@@ -227,9 +244,13 @@ func TestNewGraph_ProxyWithDanglingParent(t *testing.T) {
 	)
 	// P's parent is dangling, so P is a root; C is short-wired past P, finds
 	// no grandparent, and becomes a root too (numProxyRoots). Two roots
-	// total, so rootTrace=true fails...
-	if _, err := NewGraph(trace, "svcC", "opC", &GraphOptions{FilterProxy: true}); err == nil {
-		t.Fatal("expected multi-root error under rootTrace")
+	// total, so rootTrace=true leaves RootNode nil (Python warns + skips)...
+	g0, err := NewGraph(trace, "svcC", "opC", &GraphOptions{FilterProxy: true})
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	if g0.RootNode != nil {
+		t.Errorf("RootNode = %v, want nil (multi-root skipped under rootTrace)", g0.RootNode.SID)
 	}
 	// ...but rootTrace=false can select C.
 	g, err := NewGraph(trace, "svcC", "opC", &GraphOptions{FilterProxy: true, RootTrace: boolPtr(false)})

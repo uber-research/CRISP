@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 
 	"github.com/uber-research/CRISP/go/crisp"
@@ -36,6 +37,7 @@ func main() {
 		ignoreTestTraces, computeSlackDrag bool
 		maxExemplars, parallelism          int
 		tags, excludeFromCP                string
+		cpuProfile                         string
 	)
 
 	flag.StringVar(&serviceName, "s", "", "name of the service")
@@ -56,12 +58,23 @@ func main() {
 	flag.IntVar(&parallelism, "parallelism", 1, "accepted for compatibility; analysis runs sequentially (outputs are identical)")
 	flag.StringVar(&tags, "tags", "", "accepted for compatibility; unused in light mode (mirrors Python)")
 	flag.StringVar(&excludeFromCP, "exclude-from-cp", "", "accepted for compatibility; unused in light mode (mirrors Python)")
+	flag.StringVar(&cpuProfile, "cpuprofile", "", "write CPU profile to file (dev only)")
 	_ = outputDir
 	_ = parallelism
 	_ = tags
 	_ = excludeFromCP
 
 	flag.Parse()
+
+	if cpuProfile != "" {
+		f, err := os.Create(cpuProfile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "crisp:", err)
+			os.Exit(2)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
 	if computeSlackDrag {
 		fmt.Fprintln(os.Stderr, "crisp: --computeSlackDrag is not supported by the Go port (slack computation requires the unported DependencyGraph); drag is always computed")

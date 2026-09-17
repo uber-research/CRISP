@@ -17,6 +17,7 @@ package crisp
 //     is expected to resolve OutputDir the same way (the CLI does).
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,7 +75,10 @@ func processTraceFile(filename string, c *LightConfig) (*lightTraceResult, error
 		RootTrace: &c.RootTrace,
 	})
 	if err != nil {
-		return nil, err
+		// Python swallows parseNode failures (warning + rootNode None ->
+		// the trace is skipped); mirror that, keeping the reason visible.
+		fmt.Fprintf(os.Stderr, "skipping %s: %v\n", filename, err)
+		return nil, nil
 	}
 	if g.RootNode == nil {
 		return nil, nil

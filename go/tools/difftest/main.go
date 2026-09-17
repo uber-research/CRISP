@@ -14,6 +14,12 @@
 //	references are cached, not committed -- e.g. Zenodo shards). Populate or
 //	refresh the cache with -refresh, which runs the reference side.
 //
+//	-strict upgrades corpus mode to byte-compare every light-mode output
+//	(conformance.cct/json, light-flame-graph-P100.{cct,dot,pb}) between
+//	reference and candidate. slackDrag.csv is compared with data rows
+//	sorted: pandas sorts it with unstable quicksort, so tied avgDrag rows
+//	are legitimately ordered differently.
+//
 // The (service, operation) root is derived per trace via crisp.DeriveRootSpan,
 // mirroring scripts/generate_goldens.py -- no manifest is needed.
 //
@@ -63,6 +69,7 @@ var (
 	goldenDir = flag.String("golden", "test_cases/golden", "directory of committed goldens (golden mode)")
 	cacheDir  = flag.String("cache", ".difftest-cache", "reference output cache (corpus mode)")
 	refresh   = flag.Bool("refresh", false, "corpus mode: re-run the reference side and rewrite the cache before checking")
+	strict    = flag.Bool("strict", false, "corpus mode: byte-compare all light-mode outputs, not just canonicalized conformance.cct")
 	reference = flag.String("reference", "", "reference command template; default: the Python conformance CLI (auto-detected interpreter)")
 	candidate = flag.String("candidate", "", "candidate command template; default: same as reference (Python-vs-Python self-check)")
 	repoRoot  = flag.String("repo-root", "", "repo root used as cwd for command templates; default: walk up from cwd looking for crisp/process_trace.py")
@@ -116,6 +123,9 @@ func run() error {
 	case "golden", "corpus":
 	default:
 		return fmt.Errorf("unknown -mode %q", *mode)
+	}
+	if *strict && *mode != "corpus" {
+		return errors.New("-strict only applies to corpus mode")
 	}
 	if *mode == "corpus" && *refresh {
 		if err := refreshCache(traces, root, refTmpl); err != nil {
@@ -198,6 +208,14 @@ func checkTrace(tc traceCase, root, candTmpl string) result {
 		return result{tc.name, statusFail, err.Error()}
 	}
 
+	if *strict {
+		outputs, err := runSideAll(candTmpl, root, tmpTrace, service, operation)
+		if err != nil {
+			return result{tc.name, statusFail, err.Error()}
+		}
+		return compareCacheStrict(tc.name, data, outputs)
+	}
+
 	cct, jsonOut, err := runSide(candTmpl, root, tmpTrace, service, operation)
 	if err != nil {
 		return result{tc.name, statusFail, err.Error()}
@@ -255,50 +273,115 @@ func compareCache(name string, traceData, cct []byte) result {
 	return result{name, statusPass, ""}
 }
 
-// refreshCache runs the reference side over the whole corpus, writing
-// canonicalized conformance.cct output and a trace-content hash per trace.
+// refreshCache runs the reference side over the whole corpus in parallel,
+// writing a trace-content hash per trace plus either the canonicalized
+// conformance.cct (default) or every light-mode output file (-strict).
 func refreshCache(traces []traceCase, root, refTmpl string) error {
 	fmt.Printf("refreshing reference cache in %s (%d traces)\n", *cacheDir, len(traces))
-	for _, tc := range traces {
-		data, err := os.ReadFile(tc.path)
-		if err != nil {
-			return err
+	if err := os.MkdirAll(*cacheDir, 0o755); err != nil {
+		return err
+	}
+	type failure struct {
+		name string
+		err  error
+	}
+	work := make(chan traceCase)
+	failures := make(chan failure, len(traces))
+	var wg sync.WaitGroup
+	for i := 0; i < *jobs; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for tc := range work {
+				if err := refreshOne(tc, root, refTmpl); err != nil {
+					failures <- failure{tc.name, err}
+				}
+			}
+		}()
+	}
+	go func() {
+		for _, tc := range traces {
+			work <- tc
 		}
-		trace, err := jaeger.Decode(data)
-		if err != nil {
-			fmt.Printf("SKIP %s: cannot decode: %v\n", tc.name, err)
-			continue
+		close(work)
+		wg.Wait()
+		close(failures)
+	}()
+	var fails []failure
+	for f := range failures {
+		fails = append(fails, f)
+	}
+	if len(fails) > 0 {
+		sort.Slice(fails, func(i, j int) bool { return fails[i].name < fails[j].name })
+		for _, f := range fails {
+			fmt.Printf("REFRESH-FAIL %s: %v\n", f.name, f.err)
 		}
-		service, operation, err := crisp.DeriveRootSpan(trace)
-		if err != nil {
-			fmt.Printf("SKIP %s: cannot derive root span: %v\n", tc.name, err)
-			continue
-		}
-		tmp, err := os.MkdirTemp("", "crisp-difftest-")
-		if err != nil {
-			return err
-		}
-		tmpTrace := filepath.Join(tmp, filepath.Base(tc.path))
-		if err := os.WriteFile(tmpTrace, data, 0o644); err != nil {
-			os.RemoveAll(tmp)
-			return err
-		}
-		cct, _, err := runSide(refTmpl, root, tmpTrace, service, operation)
-		os.RemoveAll(tmp)
-		if err != nil {
-			return fmt.Errorf("reference failed on %s: %w", tc.name, err)
-		}
-		if err := os.MkdirAll(*cacheDir, 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(*cacheDir, tc.name+".cct"), canonicalize(cct), 0o644); err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(*cacheDir, tc.name+".sha256"), []byte(hashHex(data)+"\n"), 0o644); err != nil {
-			return err
-		}
+		return fmt.Errorf("%d reference failures", len(fails))
 	}
 	return nil
+}
+
+func refreshOne(tc traceCase, root, refTmpl string) error {
+	data, err := os.ReadFile(tc.path)
+	if err != nil {
+		return err
+	}
+	// Resume: a cache entry whose trace hash still matches is reused, so an
+	// interrupted (or transferred) refresh does not redo finished traces.
+	hashPath := filepath.Join(*cacheDir, tc.name+".sha256")
+	if wantHash, err := os.ReadFile(hashPath); err == nil &&
+		hashHex(data) == strings.TrimSpace(string(wantHash)) {
+		entry := filepath.Join(*cacheDir, tc.name)
+		if !*strict {
+			entry += ".cct"
+		}
+		if _, err := os.Stat(entry); err == nil {
+			return nil
+		}
+	}
+	trace, err := jaeger.Decode(data)
+	if err != nil {
+		fmt.Printf("SKIP %s: cannot decode: %v\n", tc.name, err)
+		return nil
+	}
+	service, operation, err := crisp.DeriveRootSpan(trace)
+	if err != nil {
+		fmt.Printf("SKIP %s: cannot derive root span: %v\n", tc.name, err)
+		return nil
+	}
+	tmp, err := os.MkdirTemp("", "crisp-difftest-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	tmpTrace := filepath.Join(tmp, filepath.Base(tc.path))
+	if err := os.WriteFile(tmpTrace, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(*cacheDir, tc.name+".sha256"), []byte(hashHex(data)+"\n"), 0o644); err != nil {
+		return err
+	}
+	if *strict {
+		outputs, err := runSideAll(refTmpl, root, tmpTrace, service, operation)
+		if err != nil {
+			return fmt.Errorf("reference failed: %w", err)
+		}
+		dir := filepath.Join(*cacheDir, tc.name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		for fname, content := range outputs {
+			if err := os.WriteFile(filepath.Join(dir, fname), content, 0o644); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	cct, _, err := runSide(refTmpl, root, tmpTrace, service, operation)
+	if err != nil {
+		return fmt.Errorf("reference failed: %w", err)
+	}
+	return os.WriteFile(filepath.Join(*cacheDir, tc.name+".cct"), canonicalize(cct), 0o644)
 }
 
 // runSide executes a command template against a trace copy and returns the
@@ -334,6 +417,119 @@ func runSide(tmpl, root, tracePath, service, operation string) (cct, jsonOut []b
 	}
 	jsonOut, _ = os.ReadFile(filepath.Join(outDir, "conformance.json")) // optional in corpus mode
 	return cct, jsonOut, nil
+}
+
+// lightOutputFiles are the files lightProcess writes next to the trace,
+// compared byte-wise in strict mode.
+var lightOutputFiles = []string{
+	"conformance.cct",
+	"conformance.json",
+	"light-flame-graph-P100.cct",
+	"light-flame-graph-P100.dot",
+	"light-flame-graph-P100.pb",
+	"slackDrag.csv",
+}
+
+// runSideAll is runSide but captures every light-mode output file. A file
+// absent on disk is absent from the map (slackDrag.csv is legitimately not
+// written when there is no drag data).
+func runSideAll(tmpl, root, tracePath, service, operation string) (map[string][]byte, error) {
+	repl := strings.NewReplacer("{file}", tracePath, "{service}", service, "{operation}", operation)
+	parts := strings.Fields(tmpl)
+	argv := make([]string, 0, len(parts))
+	for _, p := range parts {
+		argv = append(argv, repl.Replace(p))
+	}
+	if len(argv) == 0 {
+		return nil, errors.New("empty command template")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = root
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if runErr := cmd.Run(); runErr != nil {
+		snip := stderr.String()
+		if len(snip) > 2000 {
+			snip = snip[:2000] + "... (truncated)"
+		}
+		return nil, fmt.Errorf("command failed: %v\nstderr: %s", runErr, snip)
+	}
+	outDir := filepath.Dir(tracePath)
+	outputs := make(map[string][]byte, len(lightOutputFiles))
+	for _, name := range lightOutputFiles {
+		data, err := os.ReadFile(filepath.Join(outDir, name))
+		if err != nil {
+			continue
+		}
+		outputs[name] = data
+	}
+	// An empty map means the implementation skipped the trace (Python's
+	// lightProcess writes nothing when the trace has no usable root).
+	return outputs, nil
+}
+
+// sortCSVRows sorts a slackDrag.csv's data rows (header stays first) so the
+// comparison is insensitive to pandas' unstable quicksort tie order.
+func sortCSVRows(b []byte) []byte {
+	lines := bytes.Split(bytes.TrimRight(b, "\n"), []byte("\n"))
+	if len(lines) <= 2 {
+		return b
+	}
+	rows := lines[1:]
+	sort.Slice(rows, func(i, j int) bool { return bytes.Compare(rows[i], rows[j]) < 0 })
+	return append(bytes.Join(append(lines[:1], rows...), []byte("\n")), '\n')
+}
+
+// compareCacheStrict byte-compares every light-mode output against the
+// cached reference, except slackDrag.csv, which is compared with data rows
+// sorted (pandas' quicksort orders tied avgDrag rows nondeterministically).
+func compareCacheStrict(name string, traceData []byte, outputs map[string][]byte) result {
+	dir := filepath.Join(*cacheDir, name)
+	hashPath := filepath.Join(*cacheDir, name+".sha256")
+	wantHash, err := os.ReadFile(hashPath)
+	if err != nil {
+		return result{name, statusStale, "no cached trace hash; re-run with -refresh"}
+	}
+	if got := hashHex(traceData); got != strings.TrimSpace(string(wantHash)) {
+		return result{name, statusStale, "trace changed since reference was cached; re-run with -refresh"}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return result{name, statusStale, "no cached reference; re-run with -refresh"}
+	}
+	if len(entries) == 0 {
+		// The reference skipped this trace (no usable root); the candidate
+		// must skip it too.
+		if len(outputs) == 0 {
+			return result{name, statusPass, ""}
+		}
+		return result{name, statusFail, "reference produced no outputs (trace skipped), candidate produced some"}
+	}
+	if len(outputs) == 0 {
+		return result{name, statusFail, "reference produced outputs, candidate produced none (skipped?)"}
+	}
+	for _, fname := range lightOutputFiles {
+		ref, refErr := os.ReadFile(filepath.Join(dir, fname))
+		got, ok := outputs[fname]
+		if refErr != nil {
+			if ok {
+				return result{name, statusFail, fname + ": candidate produced output, reference did not"}
+			}
+			continue // absent on both sides (e.g. empty slackDrag data)
+		}
+		if !ok {
+			return result{name, statusFail, fname + ": reference produced output, candidate did not"}
+		}
+		if fname == "slackDrag.csv" {
+			ref, got = sortCSVRows(ref), sortCSVRows(got)
+		}
+		if !bytes.Equal(got, ref) {
+			return result{name, statusFail, diffReport(fname, ref, got)}
+		}
+	}
+	return result{name, statusPass, ""}
 }
 
 // canonicalize mirrors crisp/conformance.py canonical_cct: drop empty lines,
