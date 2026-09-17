@@ -77,6 +77,21 @@ func (g *Graph) CalculateDrag(cp []*Node, exclusive bool) *Drag {
 	}
 
 	dragPerSpan := make(map[string]float64)
+	// sortedCache memoizes each parent's end-time-descending child order so
+	// CP nodes sharing a parent sort its children once, not once per node
+	// (Python re-sorts per node; the memoized result is identical because
+	// the stable-sort-then-reverse idiom is deterministic for a fixed input
+	// order). On traces whose critical path threads through a very wide
+	// parent this avoids an O(|cp| x fanout log fanout) blowup.
+	sortedCache := map[*Node][]*Node{}
+	sortedChildren := func(n *Node) []*Node {
+		if s, ok := sortedCache[n]; ok {
+			return s
+		}
+		s := sortedByEndTimeDesc(n.Children)
+		sortedCache[n] = s
+		return s
+	}
 	for _, node := range cp {
 		ownMetric := float64(node.Duration)
 		if exclusive {
@@ -89,15 +104,14 @@ func (g *Graph) CalculateDrag(cp []*Node, exclusive bool) *Drag {
 			continue
 		}
 
-		trueSiblings := parent.Children
-		if len(trueSiblings) == 1 {
+		if len(parent.Children) == 1 {
 			dragPerSpan[node.SID] = ownMetric
 			continue
 		}
 
 		// Same idiom as computeCriticalPath: stable ascending sort by
 		// endTime, then reverse, so ties break identically.
-		sortedSiblings := sortedByEndTimeDesc(trueSiblings)
+		sortedSiblings := sortedChildren(parent)
 		nodeIdx := -1
 		for idx, sibling := range sortedSiblings {
 			if sibling == node {
@@ -116,7 +130,7 @@ func (g *Graph) CalculateDrag(cp []*Node, exclusive bool) *Drag {
 		if !exclusive || len(node.Children) == 0 {
 			dragVal = float64(node.EndTime - nextSibling.EndTime)
 		} else {
-			ownCPChild := sortedByEndTimeDesc(node.Children)[0]
+			ownCPChild := sortedChildren(node)[0]
 			dragVal = float64(node.EndTime - max64(ownCPChild.EndTime, nextSibling.EndTime))
 			if ownCPChild.StartTime > nextSibling.EndTime {
 				dragVal += float64(ownCPChild.StartTime - nextSibling.EndTime)
