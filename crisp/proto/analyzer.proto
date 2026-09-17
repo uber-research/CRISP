@@ -7,6 +7,7 @@ import "google/protobuf/duration.proto";
 option java_multiple_files = true;
 option java_outer_classname = "AnalyzerProto";
 option java_package = "com.crisp.analyzer";
+option go_package = "github.com/uber-research/CRISP/go/crisp/proto/analyzer";
 
 // CallPath represents one step in a call chain.
 message CallPath {
