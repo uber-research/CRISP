@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "crisp_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/uber-research/CRISP/go/cmd/crisp",
+    visibility = ["//visibility:private"],
+    deps = ["//go/crisp"],
+)
+
+go_binary(
+    name = "crisp",
+    embed = [":crisp_lib"],
+    visibility = ["//visibility:public"],
+)
