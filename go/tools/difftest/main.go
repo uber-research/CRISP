@@ -326,6 +326,19 @@ func refreshOne(tc traceCase, root, refTmpl string) error {
 	if err != nil {
 		return err
 	}
+	// Resume: a cache entry whose trace hash still matches is reused, so an
+	// interrupted (or transferred) refresh does not redo finished traces.
+	hashPath := filepath.Join(*cacheDir, tc.name+".sha256")
+	if wantHash, err := os.ReadFile(hashPath); err == nil &&
+		hashHex(data) == strings.TrimSpace(string(wantHash)) {
+		entry := filepath.Join(*cacheDir, tc.name)
+		if !*strict {
+			entry += ".cct"
+		}
+		if _, err := os.Stat(entry); err == nil {
+			return nil
+		}
+	}
 	trace, err := jaeger.Decode(data)
 	if err != nil {
 		fmt.Printf("SKIP %s: cannot decode: %v\n", tc.name, err)
