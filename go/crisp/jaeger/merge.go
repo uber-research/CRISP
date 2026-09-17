@@ -168,13 +168,14 @@ func tagEqual(a, b Tag) bool {
 	if a.Key != b.Key || a.Type != b.Type {
 		return false
 	}
-	return valueEqual(a.Value, b.Value)
+	return ValueEqual(a.Value, b.Value)
 }
 
-// valueEqual compares dynamically-typed tag values the way Python's == does
+// ValueEqual compares dynamically-typed tag values the way Python's == does
 // for the JSON-decoded shapes involved (strings, numbers, bools, nil, and
-// nested lists/maps).
-func valueEqual(a, b any) bool {
+// nested lists/maps). It is exported for the graph-construction package,
+// whose tag-filter matching needs the same semantics.
+func ValueEqual(a, b any) bool {
 	switch av := a.(type) {
 	case nil:
 		return b == nil
@@ -195,7 +196,7 @@ func valueEqual(a, b any) bool {
 			return false
 		}
 		for i := range av {
-			if !valueEqual(av[i], bv[i]) {
+			if !ValueEqual(av[i], bv[i]) {
 				return false
 			}
 		}
@@ -206,7 +207,8 @@ func valueEqual(a, b any) bool {
 			return false
 		}
 		for k, v := range av {
-			if !valueEqual(v, bv[k]) {
+			bvVal, ok := bv[k]
+			if !ok || !ValueEqual(v, bvVal) {
 				return false
 			}
 		}

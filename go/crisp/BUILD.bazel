@@ -4,6 +4,8 @@ go_library(
     name = "crisp",
     srcs = [
         "classify.go",
+        "config.go",
+        "graph.go",
         "node.go",
         "parse.go",
         "root_span.go",
@@ -17,6 +19,7 @@ go_library(
 go_test(
     name = "crisp_test",
     srcs = [
+        "graph_test.go",
         "parse_test.go",
         "root_span_test.go",
     ],
