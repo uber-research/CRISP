@@ -3,12 +3,15 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "crisp",
     srcs = [
+        "aggregate.go",
         "classify.go",
         "config.go",
+        "conformance.go",
         "criticalpath.go",
         "graph.go",
         "node.go",
         "parse.go",
+        "profile.go",
         "root_span.go",
         "span_utils.go",
     ],
@@ -20,9 +23,13 @@ go_library(
 go_test(
     name = "crisp_test",
     srcs = [
+        "aggregate_test.go",
+        "conformance_golden_test.go",
+        "conformance_test.go",
         "criticalpath_test.go",
         "graph_test.go",
         "parse_test.go",
+        "profile_test.go",
         "root_span_test.go",
     ],
     data = ["//:test_cases"],  # keep
