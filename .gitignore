@@ -12,4 +12,5 @@ bazel-*
 *.egg-info/
 build/
 dist/
-docs/
+docs/*
+!docs/go-port-validation.html

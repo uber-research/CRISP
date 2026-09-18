@@ -66,6 +66,13 @@ func processTraceFile(filename string, c *LightConfig) (*lightTraceResult, error
 	if err != nil {
 		return nil, err
 	}
+	return processTraceData(data, TraceIDFromFilePath(filename), filename, c)
+}
+
+// processTraceData is processTraceFile with the trace bytes already in
+// memory; traceID and filename are used exactly as Python uses
+// getTraceIdFromFilePath(filename) and the filename (exemplars, messages).
+func processTraceData(data []byte, traceID, filename string, c *LightConfig) (*lightTraceResult, error) {
 	trace, err := jaeger.Decode(data)
 	if err != nil {
 		return nil, err
@@ -87,7 +94,6 @@ func processTraceFile(filename string, c *LightConfig) (*lightTraceResult, error
 		return nil, nil
 	}
 
-	traceID := TraceIDFromFilePath(filename)
 	cp, err := g.FindCriticalPath(nil)
 	if err != nil {
 		return nil, err
@@ -118,7 +124,31 @@ func LightProcess(c *LightConfig) error {
 			valid = append(valid, res)
 		}
 	}
+	return writeLightOutputs(c, valid)
+}
 
+// ProcessSingleTraceData runs the light-mode pipeline on one in-memory
+// Jaeger JSON trace and writes the same outputs a CLI single-file run
+// would into c.OutputDir (including the empty outputs Python writes for a
+// skipped trace). traceID plays the role of getTraceIdFromFilePath. It is
+// the library entry point for callers that already hold trace bytes (no
+// disk read, no subprocess); it spawns no goroutines, so callers control
+// parallelism entirely.
+func ProcessSingleTraceData(data []byte, traceID string, c *LightConfig) error {
+	res, err := processTraceData(data, traceID, traceID, c)
+	if err != nil {
+		return err
+	}
+	var valid []*lightTraceResult
+	if res != nil {
+		valid = append(valid, res)
+	}
+	return writeLightOutputs(c, valid)
+}
+
+// writeLightOutputs is the LightProcess tail: merge the per-trace results
+// and write all output files.
+func writeLightOutputs(c *LightConfig, valid []*lightTraceResult) error {
 	metrics := make([]*TraceMetrics, 0, len(valid))
 	cpps := make([]*CallPathProfile, 0, len(valid))
 	perTraceSlackDrag := make([]*SlackDragByCallpath, 0, len(valid))
