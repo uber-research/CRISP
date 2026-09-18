@@ -15,6 +15,8 @@ Given a directory of [Jaeger](https://www.jaegertracing.io/) traces for a single
 
 The original paper: **[CRISP: Critical Path Analysis of Large-Scale Microservice Architectures](https://www.usenix.org/conference/atc22/presentation/zhang-zhizhou)**, USENIX ATC '22.
 
+> A **Go port** of the light/conformance pipeline — byte-identical outputs, single static binary, embeddable as a library — is in beta. See [Go port](#go-port-beta).
+
 ---
 
 ## Installation
@@ -92,7 +94,7 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 | `--numHMTrace` | 200 | Max traces shown in the heatmap |
 | `--numOperation` | 20 | Max operations shown in the heatmap |
 | `--mergeAllRoots` / `--no-mergeAllRoots` | on | Merge metrics from every matching root span vs. only the first |
-| `--rootTrace` | off | Require the service/operation to be the root span of the trace |
+| `--rootTrace` | off | Require the service/operation to be the root span of the trace. Note: production traces are rarely single-rooted (orphan spans from sampling/truncation), and such traces are skipped — for endpoint analysis on production data, leave this off |
 | `--anonymize` | off | Anonymize service and operation names in output |
 | `--maxExemplars` | 3 | Max exemplar (trace/span) pairs kept per call path in `.pb` output |
 
@@ -163,6 +165,49 @@ Both `POST` endpoints accept a binary request body consisting of length-prefixed
 ```
 
 The response is a stream of length-prefixed `AnalyzeResponse` protobuf messages written as they become available.
+
+---
+
+## Go port (beta)
+
+A Go implementation of the light/conformance pipeline lives in [`go/`](go/). It produces **byte-identical outputs** to the Python reference — `conformance.cct/json`, `light-flame-graph-P100.{cct,dot,pb}`, `slackDrag.csv` — as a single static binary or an embeddable library, with no interpreter or pandas startup cost.
+
+Not ported: the heavy analysis mode (HTML report, percentile flame graphs, error analysis) and slack computation (`--computeSlackDrag`; drag is always computed, slack columns are `0.0`).
+
+### CLI
+
+```bash
+go build -o crisp-go ./go/cmd/crisp
+./crisp-go --file trace.json -s frontend -a checkout --conformance
+./crisp-go -i traces/ -s frontend -a checkout --lightMode   # directory mode
+```
+
+Flags mirror the Python CLI for the light/conformance path; like Python's light mode, outputs are written next to `--file` or into `-i`.
+
+### Library
+
+```go
+import "github.com/uber-research/CRISP/go/crisp"
+
+cfg := &crisp.LightConfig{
+    ServiceName: "frontend", OperationName: "checkout",
+    Conformance: true, MaxExemplars: 3, OutputDir: outDir,
+}
+err := crisp.ProcessSingleTraceData(traceJSON, traceID, cfg) // one in-memory trace
+```
+
+`ProcessSingleTraceData` runs the full pipeline on trace bytes already in memory — no disk read, no subprocess. The library spawns no goroutines and keeps no mutable global state, so callers parallelize simply by calling it from their own goroutines and own the parallelism budget entirely.
+
+### Validation
+
+Byte-parity against the Python reference is enforced by a [difftest harness](go/tools/difftest) that compares all six light-mode outputs per trace (`slackDrag.csv` is compared row-sorted; pandas' sort is not stable across tied values):
+
+- **Zenodo artifact corpus** — 170,993/170,993 traces byte-identical across all three datasets (`bottom-up-trace`, `Service43-Operation159`, `ml-service3`), including skip-for-skip agreement on multi-root/no-root traces and a 119,680-span trace. Fully reproducible: download the artifact and run `difftest -mode corpus -strict`.
+- **The Tale of Errors in Microservices corpus** ([Zenodo part 1](https://zenodo.org/records/13947828) + [part 2](https://zenodo.org/records/13952897)) — 1,388,527/1,388,527 traces byte-identical across both artifact parts (`trace1`, `trace2`). Combined with the artifact corpus above, that's 1,559,520/1,559,520 public traces with zero divergence.
+
+Performance is trace-size dependent, so we report both ends of the spectrum. On a random 100-trace sample of the public `bottom-up-trace` dataset (median 24 spans, 8 workers): shelling out to the Python CLI averages 380 ms/trace — almost entirely fixed interpreter + pandas startup — while the Go CLI as a subprocess takes 7 ms/trace and in-process library calls 3 ms/trace (48× and 89× wall-clock respectively). At the other end, the corpus' largest trace (119,680 spans) runs the identical algorithm in 17m05s (Python) vs 10m37s (Go), a 1.6× analysis-time speedup where startup cost is negligible. Between these regimes the ratio interpolates: startup elimination dominates small traces, analysis speed dominates large ones. Separately, a synthetic 957k-span trace completes in 13 s at 2.0 GB RSS (Jaeger deployments can see up to ~1M spans per trace).
+
+A full write-up of the validation journey — methodology, the skip-semantics divergence the corpus surfaced, the 277× drag-sort fix, and the invocation-mode benchmark — is in [docs/go-port-validation.html](docs/go-port-validation.html).
 
 ---
 

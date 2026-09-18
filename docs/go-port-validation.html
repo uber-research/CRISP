@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRISP Go Port — Validation Journey</title>
+<style>
+  :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --green:#3fb950; --amber:#d29922; --card:#161b22; --border:#30363d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 48px 24px 96px; }
+  h1 { font-size: 2rem; margin: 0 0 8px; }
+  h2 { font-size: 1.35rem; margin: 48px 0 12px; padding-top: 24px; border-top: 1px solid var(--border); }
+  h3 { font-size: 1.05rem; margin: 24px 0 8px; color: var(--accent); }
+  .sub { color: var(--muted); margin-bottom: 32px; }
+  .tldr { background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--green); border-radius: 8px; padding: 20px 24px; margin: 24px 0; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px 24px; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .win { color: var(--green); font-weight: 600; }
+  .warn { color: var(--amber); }
+  code { background: #1f242c; border-radius: 4px; padding: 1px 6px; font-size: 0.9em; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 20px 0; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+  .stat .v { font-size: 1.6rem; font-weight: 700; color: var(--green); font-variant-numeric: tabular-nums; }
+  .stat .k { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+  .phase { display: flex; gap: 16px; margin: 18px 0; }
+  .phase .n { flex: 0 0 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #06101f; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .phase .body { flex: 1; }
+  .phase .body b { color: var(--accent); }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>CRISP Go Port — Validation Journey</h1>
+<div class="sub">Byte-parity validation of the Go critical-path analyzer against the Python reference &middot; September 2026</div>
+
+<div class="tldr">
+<b>TL;DR.</b> The Go port of CRISP's light/conformance pipeline is <span class="win">byte-identical to the Python reference on all 1,559,520 traces</span> across two public Zenodo datasets (the artifact corpus and the 1.39M-trace Tale of Errors corpus) — fully reproducible by anyone. Along the way we fixed a real semantic divergence (multi-root skip behavior), made a pathological 120k-span trace <span class="win">277&times; faster</span> via a semantics-preserving algorithmic fix, verified ~1M-span traces complete in <b>13s / 2GB RAM</b>, and measured wall-clock wins from <span class="win">48&ndash;89&times; on small traces</span> (interpreter-startup elimination) to a <span class="win">1.6&times; analysis-time speedup</span> on the corpus' 119,680-span largest trace.
+</div>
+
+<div class="grid">
+  <div class="stat"><div class="v">1,559,520</div><div class="k">public Zenodo traces byte-identical (100%)</div></div>
+  <div class="stat"><div class="v">277&times;</div><div class="k">faster on 120k-span trace (10m37s &rarr; 2.3s)</div></div>
+  <div class="stat"><div class="v">89&times;</div><div class="k">wall-clock, Python CLI &rarr; Go library (public benchmark)</div></div>
+  <div class="stat"><div class="v">957k spans</div><div class="k">largest trace: 13s, 2.0GB RSS, exit 0</div></div>
+</div>
+
+<h2>How we did it</h2>
+
+<div class="phase"><div class="n">1</div><div class="body">
+<b>Staged port behind a difftest harness.</b> The Go port landed as a reviewed PR chain — <a href="https://github.com/uber-research/CRISP/pull/62">#62 bootstrap</a> (Jaeger decoding, span classification, difftest harness), <a href="https://github.com/uber-research/CRISP/pull/63">#63 trace-merge</a>, <a href="https://github.com/uber-research/CRISP/pull/64">#64 graph construction</a>, <a href="https://github.com/uber-research/CRISP/pull/65">#65 critical path</a>, <a href="https://github.com/uber-research/CRISP/pull/66">#66 outputs</a>, <a href="https://github.com/uber-research/CRISP/pull/67">#67 CLI</a> — each gated on 33 golden fixtures. The harness' corpus mode (<code>-strict</code>) byte-compares <i>all six</i> light-mode outputs per trace: <code>conformance.cct/json</code>, <code>light-flame-graph-P100.{cct,dot,pb}</code>, <code>slackDrag.csv</code> (row-sorted, absorbing pandas' unstable-quicksort tie order). A sha256-keyed reference cache makes refresh resume-safe — interruptible and transferable between machines.
+</div></div>
+
+<div class="phase"><div class="n">2</div><div class="body">
+<b>Zenodo corpora: 1.56M traces, one real divergence found.</b> Ran strict byte-comparison on two public datasets on a 96-core box (64 workers + per-process BLAS thread caps, leaving headroom for concurrent download work): the research artifact (bottom-up-trace 100k, Service43-Operation159 50k, ml-service3 21k) and the <i>Tale of Errors in Microservices</i> corpus, both artifact parts (trace1 + trace2, 1,388,527 traces). The first corpus immediately surfaced a porting bug: Python <i>skips</i> traces with no root or multiple roots (log warning, <code>rootNode=None</code>), while the Go port returned a hard error and aborted. Fixed to skip-identically (<code>434e09c</code>), after which <span class="win">170,993/170,993 and 1,388,527/1,388,527 passed byte-identical</span> — including skip-for-skip agreement and a 119,680-span monster trace (17m05s Python / 10m37s Go).
+</div></div>
+
+<div class="phase"><div class="n">3</div><div class="body">
+<b>Preparing for 1M-span traces (Jaeger guidance).</b> Profiling the 120k-span trace showed ~87% of time in <i>sorting</i>: <code>CalculateDrag</code> re-sorted a parent's entire children slice for every critical-path node sharing that parent — <i>O(|cp| &times; fanout log fanout)</i>, faithfully matching Python's per-node <code>sorted()</code>. Memoizing the order per parent is semantics-preserving (stable-sort-then-reverse is deterministic), giving byte-identical output at <span class="win">277&times; speed (10m37s &rarr; 2.3s)</span>. A synthetic 957,441-span single-root trace then completed in <b>13s at 2.0GB RSS</b> — slow-but-safe as required, actually quite fast. The Go library spawns <b>zero goroutines</b> and has no mutable globals, so library callers own the parallelism budget entirely (no numpy/BLAS-style hidden thread pools like Python).
+</div></div>
+
+<div class="phase"><div class="n">4</div><div class="body">
+<b>Invocation-mode benchmark (fully reproducible).</b> A random 100-trace sample (seed 42) of the public <code>bottom-up-trace</code> dataset, 8 workers, BLAS threads capped, three deployment shapes timed end-to-end. Outputs verified A&nbsp;==&nbsp;B&nbsp;==&nbsp;C byte-identical on every trace. One operational lesson fell out: real traces are rarely single-rooted (orphan spans from sampling/truncation), and <code>--rootTrace</code> skips such traces by design — for endpoint analysis, leave it off.
+</div></div>
+
+<table>
+  <tr><th>Mode</th><th class="num">Wall (100 traces)</th><th class="num">Per-trace mean</th><th class="num">p95</th><th class="num">vs Python CLI</th></tr>
+  <tr><td><b>A</b> — Go wrapper &rarr; Python CLI subprocess</td><td class="num">4.92s</td><td class="num">380ms</td><td class="num">408ms</td><td class="num">1.0&times;</td></tr>
+  <tr><td><b>B</b> — Go wrapper &rarr; Go CLI subprocess</td><td class="num">0.10s</td><td class="num">7ms</td><td class="num">14ms</td><td class="num win">48&times;</td></tr>
+  <tr><td><b>C</b> — preloaded in-memory &rarr; Go library call</td><td class="num">0.06s <span class="muted">(+3ms preload)</span></td><td class="num">3ms</td><td class="num">9ms</td><td class="num win">89&times;</td></tr>
+</table>
+
+<div class="card">
+These traces are small (median 24 spans), so the comparison is dominated by fixed per-process cost: Python pays ~380ms/trace of interpreter + pandas startup while a Go subprocess starts in ~5ms. The speedup is therefore trace-size dependent by construction, and the corpus' own largest trace marks the other end: at 119,680 spans the identical algorithm runs 17m05s in Python vs 10m37s in Go — a 1.6&times; analysis-time ratio where startup is negligible. Small traces see the startup-elimination win (up to 89&times;), large traces see the analysis win (~1.6&times;), and mid-sized traces interpolate between the two. The in-memory library (<code>ProcessSingleTraceData</code>) removes even the spawn and the disk read.
+</div>
+
+<h2>Wins</h2>
+<ul>
+  <li><b>Correctness:</b> byte-parity on all 1,559,520 traces across two public research corpora — including skip-for-skip agreement and all six output files.</li>
+  <li><b>One real bug found by the corpus, fixed:</b> multi-root / no-root traces now skip like Python instead of erroring (<code>434e09c</code>).</li>
+  <li><b>277&times; on pathological traces:</b> memoized drag sibling-sort (<code>d89a742</code>); benefits any trace whose critical path threads a wide parent. Python reference retains the original quadratic behavior.</li>
+  <li><b>Size-dependent speedup, both ends reported:</b> 48&ndash;89&times; wall-clock over the Python CLI on small traces (eliminating ~380ms/trace of interpreter + pandas startup), interpolating to a 1.6&times; analysis-time win on the 119,680-span largest trace (17m05s &rarr; 10m37s, identical algorithm).</li>
+  <li><b>1M-span readiness:</b> 957k-span trace in 13s / 2.0GB, no crash — Jaeger's upper-bound guidance covered with headroom.</li>
+  <li><b>Infrastructure:</b> resume-safe strict difftest (interrupt, rsync, continue), thread-capped workers, per-trace timeouts — reusable for every future port validation.</li>
+</ul>
+
+<h2>Artifacts</h2>
+<ul>
+  <li><a href="https://github.com/uber-research/CRISP/pull/68">PR #68</a> — difftest strict mode, root-selection skip parity, drag-sort optimization (merged).</li>
+  <li><a href="https://github.com/uber-research/CRISP/pull/69">PR #69</a> — <code>ProcessSingleTraceData</code> library entry point, <code>prodbench</code> tool, README Go-port section.</li>
+  <li>PR chain <a href="https://github.com/uber-research/CRISP/pull/62">#62</a>–<a href="https://github.com/uber-research/CRISP/pull/67">#67</a> — the Go port itself (all merged).</li>
+  <li>Zenodo artifact: <a href="https://zenodo.org/records/13956078">10.5281/zenodo.13956078</a> (170,993 traces).</li>
+  <li>Tale of Errors in Microservices corpus: <a href="https://zenodo.org/records/13947828">part 1</a> + <a href="https://zenodo.org/records/13952897">part 2</a> (1,388,527 traces).</li>
+</ul>
+
+<div class="muted" style="margin-top:48px">Generated 2026-09-18 &middot; CRISP Go port validation</div>
+
+</div>
+</body>
+</html>
