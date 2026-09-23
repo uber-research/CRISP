@@ -96,6 +96,7 @@ func ParseTrace(t *jaeger.Trace) (*ParsedTrace, error) {
 				return nil, fmt.Errorf("span %s: %w", span.SpanID, err)
 			}
 			peerService := getPeerService(span.Tags)
+			rpcProtocol, rpcStatusCode := extractRPCStatus(span.Tags)
 
 			if isTestTraceByOpName(span.OperationName) {
 				pt.IsTestTrace = true
@@ -110,7 +111,7 @@ func ParseTrace(t *jaeger.Trace) (*ParsedTrace, error) {
 				return nil, fmt.Errorf("span %s: duration: %w", span.SpanID, err)
 			}
 
-			pt.Nodes = append(pt.Nodes, newNode(
+			node := newNode(
 				span.SpanID,
 				startTime,
 				duration,
@@ -120,7 +121,9 @@ func ParseTrace(t *jaeger.Trace) (*ParsedTrace, error) {
 				spanKind,
 				peerService,
 				hasError,
-			))
+			)
+			node.RPCProtocol, node.RPCStatusCode = rpcProtocol, rpcStatusCode
+			pt.Nodes = append(pt.Nodes, node)
 		}
 	}
 

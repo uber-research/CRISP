@@ -66,6 +66,8 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
             [--mergeAllRoots | --no-mergeAllRoots] [--rootTrace] [--anonymize]
             [--tags TAGS] [--exclude-from-cp EXCLUDEFROMCP]
             [--maxExemplars MAXEXEMPLARS]
+            [--errorBreakdown {origins,propToRoot}]
+            [--errorBreakdownRoot {trace,analysis}]
             [--deltaMicroSec DELTAMICROSEC]
             [--deltaTargetService DELTATARGETSERVICE]
             [--deltaTargetOperation DELTATARGETOPERATION]
@@ -89,6 +91,8 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 |---|---|---|
 | `--lightMode` | off | Fast single-pass CCT + protobuf output; skips HTML/CSV generation |
 | `--errorAnalysis` | off | Run error-path analysis in addition to critical-path analysis |
+| `--errorBreakdown MODE` | off | Light mode: also write `error-breakdown.json`, the error call paths keyed by RPC protocol and status code. `origins` reports every erroring span with no erroring child; `propToRoot` only errors that propagate to the root. See [CONFORMANCE.md](CONFORMANCE.md#error-breakdown) |
+| `--errorBreakdownRoot ROOT` | `trace` | Where the error breakdown starts: `trace` (the trace's root span, or a virtual root over orphaned spans) or `analysis` (the root chosen for `-s`/`-a`) |
 | `--doRanges` | off | Produce flame graphs for every 20-percentile window (P0–P20, P20–P40, …) |
 | `--topN` | 20 | Max services shown in the summary |
 | `--numHMTrace` | 200 | Max traces shown in the heatmap |
@@ -134,6 +138,7 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 | `criticalPath*.csv` | Per-trace latency breakdown |
 | `timeSaved*.csv` | Per-operation saving potential |
 | `error*.csv` | Error depth / propagation stats (requires `--errorAnalysis`) |
+| `error-breakdown.json` | Error call paths with counts and exemplars (requires `--errorBreakdown`) |
 
 ---
 
@@ -170,9 +175,9 @@ The response is a stream of length-prefixed `AnalyzeResponse` protobuf messages 
 
 ## Go port (beta)
 
-A Go implementation of the light/conformance pipeline lives in [`go/`](go/). It produces **byte-identical outputs** to the Python reference — `conformance.cct/json`, `light-flame-graph-P100.{cct,dot,pb}`, `slackDrag.csv` — as a single static binary or an embeddable library, with no interpreter or pandas startup cost.
+A Go implementation of the light/conformance pipeline lives in [`go/`](go/). It produces **byte-identical outputs** to the Python reference — `conformance.cct/json`, `light-flame-graph-P100.{cct,dot,pb}`, `slackDrag.csv`, `error-breakdown.json` — as a single static binary or an embeddable library, with no interpreter or pandas startup cost.
 
-Not ported: the heavy analysis mode (HTML report, percentile flame graphs, error analysis) and slack computation (`--computeSlackDrag`; drag is always computed, slack columns are `0.0`).
+Not ported: the heavy analysis mode (HTML report, percentile flame graphs, `--errorAnalysis` outputs) and slack computation (`--computeSlackDrag`; drag is always computed, slack columns are `0.0`).
 
 ### CLI
 

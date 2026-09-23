@@ -1,0 +1,65 @@
+{
+  "data": [
+    {
+      "traceID": "e0000000000000a7",
+      "spans": [
+        {
+          "traceID": "e0000000000000a7",
+          "spanID": "0000000000000001",
+          "operationName": "r",
+          "references": [],
+          "startTime": 1700000000000000,
+          "duration": 1000,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a7",
+          "spanID": "0000000000000002",
+          "operationName": "late",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a7",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000005000,
+          "duration": 1000,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "grpc.status_code",
+              "type": "int64",
+              "value": 13
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        }
+      ],
+      "processes": {
+        "p1": {
+          "serviceName": "s",
+          "tags": []
+        }
+      }
+    }
+  ]
+}

@@ -56,9 +56,20 @@ py_library(
         ":configuration",
         ":constants",
         ":dependency_graph",
+        ":error_breakdown",
         ":pkg",
         ":retimer",
         ":slack_drag",
+        "//crisp/shared:shared",
+        "//crisp/utils:utils",
+    ],
+)
+
+py_library(
+    name = "error_breakdown",
+    srcs = ["error_breakdown.py"],
+    visibility = ["//visibility:public"],
+    deps = [
         "//crisp/shared:shared",
         "//crisp/utils:utils",
     ],
@@ -211,6 +222,7 @@ py_library(
         "//crisp:common",
         "//crisp:conformance",
         "//crisp:constants",
+        "//crisp:error_breakdown",
         "//crisp:flamegraph",
         "//crisp:graph",
         "//crisp:pkg",

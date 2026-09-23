@@ -1,0 +1,381 @@
+{
+  "data": [
+    {
+      "traceID": "e0000000000000a4",
+      "spans": [
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "0000000000000001",
+          "operationName": "/api",
+          "references": [],
+          "startTime": 1700000000000000,
+          "duration": 1000,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.response.status_code",
+              "type": "int64",
+              "value": 500
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "0000000000000002",
+          "operationName": "call-users",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000010,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "grpc.status_code",
+              "type": "int64",
+              "value": 14
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "0000000000000003",
+          "operationName": "GetUser",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000002"
+            }
+          ],
+          "startTime": 1700000000000020,
+          "duration": 80,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "rpc.grpc.status_code",
+              "type": "string",
+              "value": "14"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p2"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "0000000000000004",
+          "operationName": "query",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000003"
+            }
+          ],
+          "startTime": 1700000000000030,
+          "duration": 10,
+          "tags": [
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            },
+            {
+              "key": "http.response.status_code",
+              "type": "int64",
+              "value": 503
+            }
+          ],
+          "logs": [],
+          "processID": "p2"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "0000000000000005",
+          "operationName": "call-cache",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000120,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "rpc.yarpc.status_code",
+              "type": "int64",
+              "value": 5
+            },
+            {
+              "key": "rpc.transport",
+              "type": "string",
+              "value": "grpc"
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "0000000000000006",
+          "operationName": "call-legacy",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000180,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "my.tchannel.status",
+              "type": "int64",
+              "value": 0
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": false
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "0000000000000007",
+          "operationName": "Do",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000006"
+            }
+          ],
+          "startTime": 1700000000000190,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "http.response.status_code",
+              "type": "string",
+              "value": "404"
+            }
+          ],
+          "logs": [],
+          "processID": "p3"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "0000000000000008",
+          "operationName": "call-search",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000300,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "grpc.status",
+              "type": "string",
+              "value": "OK"
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "0000000000000009",
+          "operationName": "Query",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000008"
+            }
+          ],
+          "startTime": 1700000000000310,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "grpc.status",
+              "type": "string",
+              "value": "UNAVAILABLE"
+            }
+          ],
+          "logs": [],
+          "processID": "p4"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "000000000000000a",
+          "operationName": "call-http",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000420,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "rpc.transport",
+              "type": "string",
+              "value": "http"
+            },
+            {
+              "key": "http.status_code",
+              "type": "int64",
+              "value": 502
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "000000000000000b",
+          "operationName": "call-ok",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000500,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "client"
+            },
+            {
+              "key": "http.response.status_code",
+              "type": "int64",
+              "value": 200
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a4",
+          "spanID": "000000000000000c",
+          "operationName": "Charge",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a4",
+              "spanID": "000000000000000b"
+            }
+          ],
+          "startTime": 1700000000000510,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p5"
+        }
+      ],
+      "processes": {
+        "p1": {
+          "serviceName": "gateway",
+          "tags": []
+        },
+        "p2": {
+          "serviceName": "users",
+          "tags": []
+        },
+        "p3": {
+          "serviceName": "legacy",
+          "tags": []
+        },
+        "p4": {
+          "serviceName": "search",
+          "tags": []
+        },
+        "p5": {
+          "serviceName": "billing",
+          "tags": []
+        }
+      }
+    }
+  ]
+}

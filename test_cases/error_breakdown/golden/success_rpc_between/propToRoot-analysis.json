@@ -1,0 +1,25 @@
+{
+  "mode": "propToRoot",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[svc]root",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "success_rpc_between"
+            }
+          ],
+          "operation": "root",
+          "protocol": null,
+          "service": "svc",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "analysis",
+  "traces": 1
+}

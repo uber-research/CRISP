@@ -1,0 +1,25 @@
+{
+  "mode": "propToRoot",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[S1]O1",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "err2"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "trace",
+  "traces": 1
+}

@@ -10,7 +10,7 @@ import os
 import re
 from datetime import datetime
 from functools import partial, reduce
-from typing import Any
+from typing import Any, Optional
 
 import psutil
 
@@ -26,6 +26,14 @@ from crisp.cct_utils import (
     parse_cct_file,
 )
 from crisp.conformance import write_conformance_outputs
+from crisp.error_breakdown import (
+    MODES as ERROR_BREAKDOWN_MODES,
+    ROOT_TRACE,
+    ROOTS as ERROR_BREAKDOWN_ROOTS,
+    ErrorBreakdownOptions,
+    merge_error_breakdowns,
+    write_error_breakdown,
+)
 from crisp.graph import Graph, accumulateInDict
 from crisp.metrics.aggregators import (
     MergeCallPathProfilesWithExample,
@@ -368,6 +376,31 @@ def initArgs():
     )
 
     argParser.add_argument(
+        "--errorBreakdown",
+        dest="errorBreakdown",
+        choices=ERROR_BREAKDOWN_MODES,
+        default=None,
+        required=False,
+        help=(
+            "Light mode: also write error-breakdown.json, the error call paths keyed by RPC "
+            "protocol and status code. 'origins' reports every erroring span with no erroring "
+            "child; 'propToRoot' only errors that propagate to the root. See CONFORMANCE.md."
+        ),
+    )
+
+    argParser.add_argument(
+        "--errorBreakdownRoot",
+        dest="errorBreakdownRoot",
+        choices=ERROR_BREAKDOWN_ROOTS,
+        default=ROOT_TRACE,
+        required=False,
+        help=(
+            "Where the error breakdown starts: 'trace' (the trace's root span, default) or "
+            "'analysis' (the root chosen for -s/-a)."
+        ),
+    )
+
+    argParser.add_argument(
         "--maxExemplars",
         dest="maxExemplars",
         action="store",
@@ -499,6 +532,8 @@ def initArgs():
         maxExemplars=maxExemplars,
         jaegerQueryUrl=args.jaegerQueryUrl,
         computeSlackDrag=computeSlackDrag,
+        errorBreakdown=args.errorBreakdown,
+        errorBreakdownRoot=args.errorBreakdownRoot,
     )
     c.jaegerTraceFiles = jaegerTraceFiles
     c.outputDir = args.outputDir if args.outputDir else tracesDir
@@ -622,6 +657,13 @@ document.querySelectorAll(".table-sortable th").forEach(headerCell => {
 # Single-trace processing
 # ---------------------------------------------------------------------------
 
+def _errorBreakdownOptions(config: common.Config) -> Optional[ErrorBreakdownOptions]:
+    errorBreakdown = getattr(config, "errorBreakdown", None)
+    if not errorBreakdown:
+        return None
+    return ErrorBreakdownOptions(errorBreakdown, getattr(config, "errorBreakdownRoot", ROOT_TRACE))
+
+
 def process(filename: str, config: common.Config) -> Any:
     """Process one Jaeger JSON trace file and return its Metrics, or None to skip."""
     with open(filename, "r") as f:
@@ -634,6 +676,7 @@ def process(filename: str, config: common.Config) -> Any:
         filename,
         config.rootTrace,
         filterProxy=config.filterProxy,
+        errorBreakdown=_errorBreakdownOptions(config),
     )
 
     if graph.rootNode is None:
@@ -645,6 +688,7 @@ def process(filename: str, config: common.Config) -> Any:
     traceID = getTraceIdFromFilePath(filename)
     criticalPath = graph.findCriticalPath()
     fullErrCP = graph.findErrorsOnCriticalPath()
+    propToRootErrCCT = graph.computePropToRootGraph() if config.errorAnalysis else {}
     (
         totalWork,
         timeSavedOnWork,
@@ -662,7 +706,7 @@ def process(filename: str, config: common.Config) -> Any:
         timeSavedOnCPPessimistic,
         timeSavedOnCPOptimistic,
         timeSavedOnCPAllSeries,
-        {},
+        propToRootErrCCT,
     )
 
     if metrics:
@@ -675,6 +719,7 @@ def process(filename: str, config: common.Config) -> Any:
         drag = graph.calculateDrag(cp=criticalPath)
         slack = graph.calculateSlack(cp=criticalPath) if config.computeSlackDrag else None
         metrics.slackDragPerCallPath = aggregate_drag_slack_by_callpath(graph, drag, slack)
+        metrics.errorBreakdown = graph.errorBreakdown
 
     logging.debug("critical path: %s", criticalPath)
     cpp = metrics.CPMetrics.profile if metrics.CPMetrics else {}
@@ -2199,6 +2244,18 @@ def lightProcess(c: common.Config) -> int:
     if c.conformance:
         write_conformance_outputs(outputDir, flameGraphStr, merged_cpp, c.maxExemplars)
 
+    options = _errorBreakdownOptions(c)
+    if options is not None:
+        perTrace = [
+            (m.traceID, m.errorBreakdown)
+            for m in validMetrics
+            if getattr(m, "errorBreakdown", None) is not None
+        ]
+        errorBreakdownFile = write_error_breakdown(
+            outputDir, merge_error_breakdowns(perTrace, options, c.maxExemplars)
+        )
+        logging.info("Wrote error breakdown: %s", errorBreakdownFile)
+
     # Drag is always populated per trace (see process()); slack columns are 0.0
     # unless --computeSlackDrag was also passed. Unconditional, like the heavy
     # path's genSlackDragCSVFile call, since drag alone is cheap and always
@@ -2254,6 +2311,9 @@ def main() -> int:
     c = initArgs()
     if c.lightMode or c.conformance:
         return lightProcess(c)
+    if c.errorBreakdown:
+        logging.warning("--errorBreakdown is only written in light mode (--lightMode or --conformance); ignoring it")
+        c.errorBreakdown = None
     return processReal(c)
 
 

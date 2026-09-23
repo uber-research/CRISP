@@ -1,0 +1,92 @@
+{
+  "data": [
+    {
+      "traceID": "e0000000000000a2",
+      "spans": [
+        {
+          "traceID": "e0000000000000a2",
+          "spanID": "0000000000000001",
+          "operationName": "root",
+          "references": [],
+          "startTime": 1700000000000000,
+          "duration": 1000,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a2",
+          "spanID": "0000000000000002",
+          "operationName": "A",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a2",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000100,
+          "duration": 500,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            }
+          ],
+          "logs": [],
+          "processID": "p2"
+        },
+        {
+          "traceID": "e0000000000000a2",
+          "spanID": "0000000000000003",
+          "operationName": "B",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a2",
+              "spanID": "0000000000000002"
+            }
+          ],
+          "startTime": 1700000000000200,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p2"
+        }
+      ],
+      "processes": {
+        "p1": {
+          "serviceName": "svc",
+          "tags": []
+        },
+        "p2": {
+          "serviceName": "other",
+          "tags": []
+        }
+      }
+    }
+  ]
+}

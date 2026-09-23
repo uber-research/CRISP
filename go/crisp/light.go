@@ -45,6 +45,8 @@ type LightConfig struct {
 	// enable error-propagation nodes. It has no effect unless the
 	// proxy/err-prop lists in span_utils.go are populated.
 	FilterProxy bool
+	// ErrorBreakdown, when set, also writes error-breakdown.json.
+	ErrorBreakdown *ErrorBreakdownOptions
 	// Context, when non-nil, is checked before each trace file in
 	// LightProcess so a canceled caller stops the run promptly instead of
 	// processing the whole cohort. Nil means no cancellation checks.
@@ -57,9 +59,10 @@ type LightConfig struct {
 
 // lightTraceResult carries one trace's contribution to the light outputs.
 type lightTraceResult struct {
-	traceID   string
-	cpp       *CallPathProfile
-	slackDrag *SlackDragByCallpath
+	traceID        string
+	cpp            *CallPathProfile
+	slackDrag      *SlackDragByCallpath
+	errorBreakdown TraceErrorBreakdown
 }
 
 // TraceIDFromFilePath mirrors process_trace.py getTraceIdFromFilePath:
@@ -89,9 +92,10 @@ func processTraceData(data []byte, traceID, filename string, c *LightConfig) (*l
 		return nil, err
 	}
 	g, err := NewGraph(trace, c.ServiceName, c.OperationName, &GraphOptions{
-		Filename:    filename,
-		RootTrace:   &c.RootTrace,
-		FilterProxy: c.FilterProxy,
+		Filename:       filename,
+		RootTrace:      &c.RootTrace,
+		FilterProxy:    c.FilterProxy,
+		ErrorBreakdown: c.ErrorBreakdown,
 	})
 	if err != nil {
 		// Python swallows parseNode failures (warning + rootNode None ->
@@ -116,9 +120,10 @@ func processTraceData(data []byte, traceID, filename string, c *LightConfig) (*l
 	// are 0.0).
 	drag := g.CalculateDrag(cp, false)
 	return &lightTraceResult{
-		traceID:   traceID,
-		cpp:       cpp,
-		slackDrag: g.AggregateDragSlackByCallpath(drag),
+		traceID:        traceID,
+		cpp:            cpp,
+		slackDrag:      g.AggregateDragSlackByCallpath(drag),
+		errorBreakdown: g.ErrorBreakdown,
 	}, nil
 }
 
@@ -194,6 +199,18 @@ func writeLightOutputs(c *LightConfig, valid []*lightTraceResult) error {
 
 	if c.Conformance {
 		if _, _, err := WriteConformanceOutputs(c.OutputDir, flameGraphStr, merged, c.MaxExemplars); err != nil {
+			return err
+		}
+	}
+
+	if c.ErrorBreakdown != nil {
+		var perTrace []TraceErrorBreakdownEntry
+		for _, res := range valid {
+			if res.errorBreakdown != nil {
+				perTrace = append(perTrace, TraceErrorBreakdownEntry{TraceID: res.traceID, Breakdown: res.errorBreakdown})
+			}
+		}
+		if _, err := WriteErrorBreakdown(c.OutputDir, MergeErrorBreakdowns(perTrace, *c.ErrorBreakdown, c.MaxExemplars)); err != nil {
 			return err
 		}
 	}

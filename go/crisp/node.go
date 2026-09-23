@@ -19,6 +19,11 @@ type Node struct {
 	PeerService       *string
 	ReturnError       bool
 
+	// RPCProtocol ("" if unknown) and RPCStatusCode (nil if absent) come
+	// from extractRPCStatus; only the error breakdown reads them.
+	RPCProtocol   string
+	RPCStatusCode *int64
+
 	// Parent is the linked parent node, nil for roots. Children mirrors
 	// Python's insertion-ordered dict keyed by child node: order is the
 	// order addChild was called in, which follows span document order (see

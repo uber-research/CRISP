@@ -1,0 +1,121 @@
+{
+  "mode": "propToRoot",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[gateway]/api:http:500;[gateway]call-cache:yarpc_grpc:5",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "/api",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 500
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000005",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "call-cache",
+          "protocol": "yarpc_grpc",
+          "service": "gateway",
+          "statusCode": 5
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[gateway]/api:http:500;[gateway]call-http:http:502",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "/api",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 500
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "000000000000000a",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "call-http",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 502
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[gateway]/api:http:500;[gateway]call-users:grpc:14;[users]GetUser:grpc:14;[users]query",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "/api",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 500
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000002",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "call-users",
+          "protocol": "grpc",
+          "service": "gateway",
+          "statusCode": 14
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000003",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "GetUser",
+          "protocol": "grpc",
+          "service": "users",
+          "statusCode": 14
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000004",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "query",
+          "protocol": null,
+          "service": "users",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "analysis",
+  "traces": 1
+}

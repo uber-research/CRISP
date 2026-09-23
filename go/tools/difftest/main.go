@@ -15,10 +15,11 @@
 //	refresh the cache with -refresh, which runs the reference side.
 //
 //	-strict upgrades corpus mode to byte-compare every light-mode output
-//	(conformance.cct/json, light-flame-graph-P100.{cct,dot,pb}) between
-//	reference and candidate. slackDrag.csv is compared with data rows
-//	sorted: pandas sorts it with unstable quicksort, so tied avgDrag rows
-//	are legitimately ordered differently.
+//	(conformance.cct/json, light-flame-graph-P100.{cct,dot,pb}, and
+//	error-breakdown.json when both templates pass --errorBreakdown)
+//	between reference and candidate. slackDrag.csv is compared with data
+//	rows sorted: pandas sorts it with unstable quicksort, so tied avgDrag
+//	rows are legitimately ordered differently.
 //
 // The (service, operation) root is derived per trace via crisp.DeriveRootSpan,
 // mirroring scripts/generate_goldens.py -- no manifest is needed.
@@ -81,6 +82,7 @@ var (
 type traceCase struct {
 	name string // fixture name: path relative to corpus, sans .json, "/" -> "_"
 	path string
+	rel  string // path relative to corpus
 }
 
 type result struct {
@@ -120,7 +122,9 @@ func run() error {
 	}
 
 	switch *mode {
-	case "golden", "corpus":
+	case "golden":
+		traces = conformanceFixtures(traces)
+	case "corpus":
 	default:
 		return fmt.Errorf("unknown -mode %q", *mode)
 	}
@@ -428,6 +432,7 @@ var lightOutputFiles = []string{
 	"light-flame-graph-P100.dot",
 	"light-flame-graph-P100.pb",
 	"slackDrag.csv",
+	crisp.ErrorBreakdownFile,
 }
 
 // runSideAll is runSide but captures every light-mode output file. A file
@@ -624,10 +629,24 @@ func discoverTraces(corpus string) ([]traceCase, error) {
 		}
 		name := strings.TrimSuffix(rel, ".json")
 		name = strings.ReplaceAll(name, string(filepath.Separator), "_")
-		traces = append(traces, traceCase{name: name, path: path})
+		traces = append(traces, traceCase{name: name, path: path, rel: rel})
 		return nil
 	})
 	return traces, err
+}
+
+// conformanceFixtures keeps the traces that have conformance goldens, as laid
+// out by scripts/generate_goldens.py: top-level *.json and err_pattern*/*.json.
+// Other fixture directories (e.g. error_breakdown/) carry their own goldens.
+func conformanceFixtures(traces []traceCase) []traceCase {
+	var kept []traceCase
+	for _, tc := range traces {
+		dir := filepath.Dir(tc.rel)
+		if dir == "." || (!strings.ContainsRune(dir, filepath.Separator) && strings.HasPrefix(dir, "err_pattern")) {
+			kept = append(kept, tc)
+		}
+	}
+	return kept
 }
 
 // resolveRepoRoot finds the repo root (the directory the Python CLI must run

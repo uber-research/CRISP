@@ -1,0 +1,109 @@
+{
+  "mode": "origins",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[S1]O1;[S4]O4",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "16"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "D",
+              "traceID": "16"
+            }
+          ],
+          "operation": "O4",
+          "protocol": null,
+          "service": "S4",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[S1]O1;[S5]O5",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "16"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "E",
+              "traceID": "16"
+            }
+          ],
+          "operation": "O5",
+          "protocol": null,
+          "service": "S5",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[S1]O1;[S6]O6;[S7]O7",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "16"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "F",
+              "traceID": "16"
+            }
+          ],
+          "operation": "O6",
+          "protocol": null,
+          "service": "S6",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "G",
+              "traceID": "16"
+            }
+          ],
+          "operation": "O7",
+          "protocol": null,
+          "service": "S7",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "trace",
+  "traces": 1
+}

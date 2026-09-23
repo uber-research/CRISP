@@ -39,6 +39,7 @@ func main() {
 		maxExemplars, parallelism          int
 		tags, excludeFromCP                string
 		cpuProfile                         string
+		errorBreakdown, errorBreakdownRoot string
 	)
 
 	flag.StringVar(&serviceName, "s", "", "name of the service")
@@ -55,6 +56,8 @@ func main() {
 	flag.StringVar(&outputDir, "o", "", "accepted for compatibility; unused in light mode (mirrors Python)")
 	flag.StringVar(&outputDir, "outputDir", "", "accepted for compatibility; unused in light mode (mirrors Python)")
 	flag.BoolVar(&ignoreTestTraces, "ignoreTestTraces", false, "Ignore traces marked as synthetic test traces.")
+	flag.StringVar(&errorBreakdown, "errorBreakdown", "", "Also write error-breakdown.json, the error call paths keyed by RPC protocol and status code: 'origins' (every erroring span with no erroring child) or 'propToRoot' (only errors that propagate to the root). See CONFORMANCE.md.")
+	flag.StringVar(&errorBreakdownRoot, "errorBreakdownRoot", string(crisp.ErrorBreakdownTraceRoot), "Where the error breakdown starts: 'trace' (the trace's root span) or 'analysis' (the root chosen for -s/-a).")
 	flag.BoolVar(&filterProxy, "filterProxy", false, "Short-wire proxy spans and enable error-propagation nodes (no effect unless the span_utils proxy/err-prop lists are populated).")
 	flag.BoolVar(&computeSlackDrag, "computeSlackDrag", false, "Not supported by the Go port (slack computation is not ported).")
 	flag.IntVar(&parallelism, "parallelism", 1, "accepted for compatibility; analysis runs sequentially (outputs are identical)")
@@ -106,6 +109,23 @@ func main() {
 		outDir = filepath.Dir(fileArg)
 	}
 
+	var errorBreakdownOpts *crisp.ErrorBreakdownOptions
+	switch crisp.ErrorBreakdownRoot(errorBreakdownRoot) {
+	case crisp.ErrorBreakdownTraceRoot, crisp.ErrorBreakdownAnalysisRoot:
+	default:
+		fmt.Fprintf(os.Stderr, "crisp: unknown error breakdown root %q; want %q or %q\n",
+			errorBreakdownRoot, crisp.ErrorBreakdownTraceRoot, crisp.ErrorBreakdownAnalysisRoot)
+		os.Exit(2)
+	}
+	if errorBreakdown != "" {
+		var err error
+		errorBreakdownOpts, err = crisp.NewErrorBreakdownOptions(errorBreakdown, errorBreakdownRoot)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "crisp:", err)
+			os.Exit(2)
+		}
+	}
+
 	cfg := &crisp.LightConfig{
 		ServiceName:      serviceName,
 		OperationName:    operationName,
@@ -114,6 +134,7 @@ func main() {
 		MaxExemplars:     maxExemplars,
 		IgnoreTestTraces: ignoreTestTraces,
 		FilterProxy:      filterProxy,
+		ErrorBreakdown:   errorBreakdownOpts,
 		TraceFiles:       traceFiles,
 		OutputDir:        outDir,
 	}

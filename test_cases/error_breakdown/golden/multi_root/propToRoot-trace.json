@@ -1,0 +1,25 @@
+{
+  "mode": "propToRoot",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[one]first",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "multi_root"
+            }
+          ],
+          "operation": "first",
+          "protocol": null,
+          "service": "one",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "trace",
+  "traces": 1
+}

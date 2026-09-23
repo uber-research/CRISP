@@ -47,6 +47,8 @@ type GraphOptions struct {
 	ExclusionSet []ServiceOp
 	// Config overrides analysis tunables; nil applies Python defaults.
 	Config *AnalysisConfig
+	// ErrorBreakdown, when set, computes Graph.ErrorBreakdown.
+	ErrorBreakdown *ErrorBreakdownOptions
 }
 
 // Graph mirrors the construction-time state of crisp.graph.Graph: a Jaeger
@@ -94,6 +96,11 @@ type Graph struct {
 	// MatchedTags is the result of matching Options.Tags against the tree
 	// (Graph.tags in Python).
 	MatchedTags []TagFilter
+
+	// ErrorBreakdown holds this trace's error paths when
+	// GraphOptions.ErrorBreakdown is set; nil if its root could not be
+	// chosen (analysis root only).
+	ErrorBreakdown TraceErrorBreakdown
 }
 
 // NewGraph mirrors Graph.__init__ for the JSON (non-Parquet) path: parse,
@@ -192,6 +199,12 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 	// (Python pass 5 records the fixture's expected test results; the Go
 	// port verifies against goldens via the difftest harness instead.)
 
+	// Before root selection and sanitization, which detach or drop spans.
+	if o.ErrorBreakdown != nil && o.ErrorBreakdown.Root == ErrorBreakdownTraceRoot {
+		root, virtual := g.selectTraceRoot(potentialRoots)
+		g.ErrorBreakdown = g.computeTraceBreakdown(root, virtual, o.ErrorBreakdown.Mode)
+	}
+
 	if len(potentialRoots) == 0 {
 		// Python: logging.warning("no root node in file ...") and return.
 		return g, nil
@@ -228,6 +241,10 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 	// selected.
 	if g.RootNode == nil {
 		return g, nil
+	}
+
+	if o.ErrorBreakdown != nil && o.ErrorBreakdown.Root == ErrorBreakdownAnalysisRoot {
+		g.ErrorBreakdown = g.computeTraceBreakdown(g.RootNode, false, o.ErrorBreakdown.Mode)
 	}
 
 	g.sanitizeOverflowingChildren(g.RootNode)

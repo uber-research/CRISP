@@ -23,6 +23,7 @@ py_test(
         "//crisp:conformance",
         "//crisp:configuration",
         "//crisp:constants",
+        "//crisp:error_breakdown",
         "//crisp:graph",
         "//crisp:pkg",
         "//crisp:yaml_merger",
@@ -166,6 +167,25 @@ py_test(
         "//crisp:common",
         "//crisp:conformance",
         "//crisp:process_trace",
+        "@pypi//pytest",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_error_breakdown",
+    size = "medium",
+    srcs = ["tests/test_error_breakdown.py"],
+    data = glob(["test_cases/**"]),
+    deps = [
+        "//crisp:common",
+        "//crisp:conformance",
+        "//crisp:error_breakdown",
+        "//crisp:graph",
+        "//crisp:pkg",
+        "//crisp:process_trace",
+        "//crisp/shared:shared",
+        "//crisp/utils:utils",
         "@pypi//pytest",
     ],
     imports = ["."],

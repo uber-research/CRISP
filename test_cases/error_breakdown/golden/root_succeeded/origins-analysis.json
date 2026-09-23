@@ -1,0 +1,49 @@
+{
+  "mode": "origins",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[svc]root;[other]A;[other]B",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "root_succeeded"
+            }
+          ],
+          "operation": "root",
+          "protocol": null,
+          "service": "svc",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000002",
+              "traceID": "root_succeeded"
+            }
+          ],
+          "operation": "A",
+          "protocol": null,
+          "service": "other",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000003",
+              "traceID": "root_succeeded"
+            }
+          ],
+          "operation": "B",
+          "protocol": null,
+          "service": "other",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "analysis",
+  "traces": 1
+}

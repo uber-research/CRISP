@@ -1,0 +1,37 @@
+{
+  "mode": "propToRoot",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[s]r;[s]late:grpc:13",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "sanitized_child"
+            }
+          ],
+          "operation": "r",
+          "protocol": null,
+          "service": "s",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000002",
+              "traceID": "sanitized_child"
+            }
+          ],
+          "operation": "late",
+          "protocol": "grpc",
+          "service": "s",
+          "statusCode": 13
+        }
+      ]
+    }
+  ],
+  "root": "trace",
+  "traces": 1
+}
