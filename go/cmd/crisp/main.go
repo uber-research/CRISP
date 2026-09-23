@@ -35,6 +35,7 @@ func main() {
 		inputDir, fileArg, outputDir       string
 		rootTrace, lightMode, conformance  bool
 		ignoreTestTraces, computeSlackDrag bool
+		filterProxy                        bool
 		maxExemplars, parallelism          int
 		tags, excludeFromCP                string
 		cpuProfile                         string
@@ -54,6 +55,7 @@ func main() {
 	flag.StringVar(&outputDir, "o", "", "accepted for compatibility; unused in light mode (mirrors Python)")
 	flag.StringVar(&outputDir, "outputDir", "", "accepted for compatibility; unused in light mode (mirrors Python)")
 	flag.BoolVar(&ignoreTestTraces, "ignoreTestTraces", false, "Ignore traces marked as synthetic test traces.")
+	flag.BoolVar(&filterProxy, "filterProxy", false, "Short-wire proxy spans and enable error-propagation nodes (no effect unless the span_utils proxy/err-prop lists are populated).")
 	flag.BoolVar(&computeSlackDrag, "computeSlackDrag", false, "Not supported by the Go port (slack computation is not ported).")
 	flag.IntVar(&parallelism, "parallelism", 1, "accepted for compatibility; analysis runs sequentially (outputs are identical)")
 	flag.StringVar(&tags, "tags", "", "accepted for compatibility; unused in light mode (mirrors Python)")
@@ -111,6 +113,7 @@ func main() {
 		Conformance:      conformance,
 		MaxExemplars:     maxExemplars,
 		IgnoreTestTraces: ignoreTestTraces,
+		FilterProxy:      filterProxy,
 		TraceFiles:       traceFiles,
 		OutputDir:        outDir,
 	}

@@ -633,6 +633,7 @@ def process(filename: str, config: common.Config) -> Any:
         config.operationName,
         filename,
         config.rootTrace,
+        filterProxy=config.filterProxy,
     )
 
     if graph.rootNode is None:
