@@ -22,8 +22,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `GetAllErrorFlameGraphFiles`, `genTagYAML`.
 - `pyproject.toml` runtime dependencies: `boto3`, `numpy`, `pandas`,
   `python-dateutil`, `PyYAML`, `ratelimit`, `requests`, `tenacity`.
+- Go port: `LightConfig.Context` — when non-nil, `LightProcess` checks it
+  before each trace file so canceled callers stop promptly. Nil keeps the
+  previous behavior.
+- Go port: `LightConfig.FilterProxy` and a `--filterProxy` CLI flag,
+  matching the Python CLI.
 
 ### Changed
+- Light mode now honors `--filterProxy` (Python `process()` forwards it to
+  `Graph`; the Go port matches). Previously the flag was accepted but
+  ignored in light mode. No output change unless the proxy/err-prop lists
+  in `span_utils` are populated; they ship empty.
 - `mergeCallChains`, `mergeExampleID`, `makeClickable`, `renameSortableIcon`
   are now imported from `crisp.metrics.aggregators` /
   `crisp.output.formatters` instead of being redefined in `process_trace.py`.

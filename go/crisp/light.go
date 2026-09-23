@@ -4,11 +4,13 @@ package crisp
 // lightProcess, seqProcess, and the per-trace process() pipeline.
 //
 // Parity notes:
-//   - Python's process() constructs Graph with only (data, serviceName,
-//     operationName, filename, rootTrace): tags/exclusionSet/filterProxy
+//   - Python's process() constructs Graph with (data, serviceName,
+//     operationName, filename, rootTrace, filterProxy): tags/exclusionSet
 //     are never forwarded in light mode, so the corresponding CLI flags
 //     are accepted by the Go CLI but do not affect the analysis, exactly
-//     like Python.
+//     like Python. filterProxy is forwarded (LightConfig.FilterProxy); it
+//     only changes the analysis when the proxy/err-prop lists in
+//     span_utils are populated, and they ship empty.
 //   - With no valid traces, Python's aggregateCCTs([]) takes the
 //     non-CallPathProfile branch and returns ""; mirrored here.
 //   - Python's getOutputDir() (the Config method) resolves to the --file
@@ -17,6 +19,7 @@ package crisp
 //     is expected to resolve OutputDir the same way (the CLI does).
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +41,14 @@ type LightConfig struct {
 	Conformance      bool
 	MaxExemplars     int
 	IgnoreTestTraces bool
+	// FilterProxy mirrors config.filterProxy: short-wire proxy spans and
+	// enable error-propagation nodes. It has no effect unless the
+	// proxy/err-prop lists in span_utils.go are populated.
+	FilterProxy bool
+	// Context, when non-nil, is checked before each trace file in
+	// LightProcess so a canceled caller stops the run promptly instead of
+	// processing the whole cohort. Nil means no cancellation checks.
+	Context context.Context
 	// TraceFiles mirrors c.jaegerTraceFiles (already resolved).
 	TraceFiles []string
 	// OutputDir mirrors c.getOutputDir() (resolved by the caller).
@@ -78,8 +89,9 @@ func processTraceData(data []byte, traceID, filename string, c *LightConfig) (*l
 		return nil, err
 	}
 	g, err := NewGraph(trace, c.ServiceName, c.OperationName, &GraphOptions{
-		Filename:  filename,
-		RootTrace: &c.RootTrace,
+		Filename:    filename,
+		RootTrace:   &c.RootTrace,
+		FilterProxy: c.FilterProxy,
 	})
 	if err != nil {
 		// Python swallows parseNode failures (warning + rootNode None ->
@@ -114,8 +126,15 @@ func processTraceData(data []byte, traceID, filename string, c *LightConfig) (*l
 // write light-flame-graph-P100.{cct,dot,pb}, conformance outputs when
 // enabled, and slackDrag.csv.
 func LightProcess(c *LightConfig) error {
+	ctx := c.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var valid []*lightTraceResult
 	for _, traceFile := range c.TraceFiles {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		res, err := processTraceFile(traceFile, c)
 		if err != nil {
 			return err
