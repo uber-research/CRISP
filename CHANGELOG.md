@@ -27,8 +27,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   previous behavior.
 - Go port: `LightConfig.FilterProxy` and a `--filterProxy` CLI flag,
   matching the Python CLI.
+- Error breakdown (`crisp/error_breakdown.py`, Go port
+  `go/crisp/error_breakdown.go`): `--errorBreakdown {origins,propToRoot}`
+  and `--errorBreakdownRoot {trace,analysis}` write `error-breakdown.json`
+  in light mode. It lists the call paths ending in an error, keyed by RPC
+  protocol and status code (derived from standard span tags), with counts
+  and exemplars. Errors are spans flagged by `parseForErrorReturn` or with a
+  failing status code. Spec in CONFORMANCE.md; goldens for every fixture
+  plus new `test_cases/error_breakdown/` fixtures. Go library:
+  `GraphOptions.ErrorBreakdown` / `Graph.ErrorBreakdown`,
+  `LightConfig.ErrorBreakdown`, `MergeErrorBreakdowns`.
+- `span_utils` deployment lists for the error breakdown, empty by default:
+  `HTTP_COMPONENTS`, `TCHANNEL_MARKER_TAGS`, `TCHANNEL_STATUS_TAGS`,
+  `YARPC_STATUS_TAGS`, `IGNORED_ROOT_OPS` (Go: `HTTPComponents`,
+  `TChannelMarkerTags`, `TChannelStatusTags`, `YARPCStatusTags`,
+  `IgnoredRootOps`).
+- Tests for `Graph.computePropToRootGraph`.
+
+### Fixed
+- `--errorAnalysis` flame graphs of errors propagated to the root were always
+  empty: `process()` passed `{}` to `getMetrics` instead of
+  `computePropToRootGraph()`'s result. Heavy `--errorAnalysis` runs now
+  write a non-empty `errorsPropToRoot-flame-graph-P100` output.
 
 ### Changed
+- `difftest -mode golden` checks only the conformance fixtures
+  (`test_cases/*.json`, `test_cases/err_pattern*/*.json`), like
+  `scripts/generate_goldens.py`; `-strict` corpus mode also compares
+  `error-breakdown.json` when both templates pass `--errorBreakdown`.
+- `go/crisp:crisp_test` now includes `light_test.go`.
 - Light mode now honors `--filterProxy` (Python `process()` forwards it to
   `Graph`; the Go port matches). Previously the flag was accepted but
   ignored in light mode. No output change unless the proxy/err-prop lists

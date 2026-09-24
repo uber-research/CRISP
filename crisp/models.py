@@ -87,6 +87,10 @@ class GraphNode:
         self.children = {}
         self.peerService = peerService
         self.spanKind = spanKind
+        # RPC protocol ("" if unknown) and status code (None if absent), from
+        # error_breakdown.extract_rpc_status; only read by the error breakdown.
+        self.rpcProtocol = ""
+        self.rpcStatusCode = None
 
     def setParent(self, parent):
         self.parent = parent

@@ -1,0 +1,199 @@
+{
+  "mode": "origins",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[S1]O1;[S2]O2;[S4]O4",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "B",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O2",
+          "protocol": null,
+          "service": "S2",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "D",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O4",
+          "protocol": null,
+          "service": "S4",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[S1]O1;[S2]O2;[S5]O5",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "B",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O2",
+          "protocol": null,
+          "service": "S2",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "E",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O5",
+          "protocol": null,
+          "service": "S5",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[S1]O1;[S6]O6;[S7]O7;[S8]O8",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "F",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O6",
+          "protocol": null,
+          "service": "S6",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "G",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O7",
+          "protocol": null,
+          "service": "S7",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "H",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O8",
+          "protocol": null,
+          "service": "S8",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[S1]O1;[S6]O6;[S7]O7;[S9]O9",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "F",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O6",
+          "protocol": null,
+          "service": "S6",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "G",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O7",
+          "protocol": null,
+          "service": "S7",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "I",
+              "traceID": "18"
+            }
+          ],
+          "operation": "O9",
+          "protocol": null,
+          "service": "S9",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "trace",
+  "traces": 1
+}

@@ -1,0 +1,37 @@
+{
+  "mode": "origins",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[two]second;[two]fetch:http:500",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000002",
+              "traceID": "multi_root"
+            }
+          ],
+          "operation": "second",
+          "protocol": null,
+          "service": "two",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000003",
+              "traceID": "multi_root"
+            }
+          ],
+          "operation": "fetch",
+          "protocol": "http",
+          "service": "two",
+          "statusCode": 500
+        }
+      ]
+    }
+  ],
+  "root": "analysis",
+  "traces": 1
+}

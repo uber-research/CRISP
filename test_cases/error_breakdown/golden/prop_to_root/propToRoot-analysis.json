@@ -1,0 +1,217 @@
+{
+  "mode": "propToRoot",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[testService]root;[otherService]A7;[otherService]B8",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "root",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000008",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "A7",
+          "protocol": null,
+          "service": "otherService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000010",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "B8",
+          "protocol": null,
+          "service": "otherService",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[testService]root;[testService]A1;[testService]B1",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "root",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000002",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "A1",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000009",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "B1",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[testService]root;[testService]A5;[testService]B5",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "root",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000006",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "A5",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "000000000000000d",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "B5",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[testService]root;[testService]A5;[testService]B6",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "root",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000006",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "A5",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "000000000000000e",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "B6",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[testService]root;[testService]A6;[testService]B7",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "root",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000007",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "A6",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "000000000000000f",
+              "traceID": "prop_to_root"
+            }
+          ],
+          "operation": "B7",
+          "protocol": null,
+          "service": "testService",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "analysis",
+  "traces": 1
+}

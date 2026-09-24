@@ -166,6 +166,8 @@ class Config:
         mergeAllRoots: bool = True,
         maxExemplars: int = 3,
         computeSlackDrag: bool = False,
+        errorBreakdown: typing.Optional[str] = None,
+        errorBreakdownRoot: str = "trace",
     ):
         self.operationName = operationName
         self.serviceName = serviceName
@@ -214,6 +216,10 @@ class Config:
         self.mergeAllRoots = mergeAllRoots
         self.maxExemplars = maxExemplars
         self.computeSlackDrag = computeSlackDrag
+        # Error-breakdown mode ("origins" | "propToRoot") or None to skip it,
+        # and its root mode ("trace" | "analysis"); see crisp/error_breakdown.py.
+        self.errorBreakdown = errorBreakdown
+        self.errorBreakdownRoot = errorBreakdownRoot
         # Compute the start and end UTC times for trace query.
         initialTimeStamp = getMidnightTimeStamp() if self.useMidnightTime else time.time() * 1000 * 1000
         self.startTimestamp = int(initialTimeStamp - (self.lookbackDays * 24 * 60 * 60) * 1000 * 1000) if not startTimestamp else startTimestamp

@@ -23,6 +23,14 @@ var (
 	// are reported on the caller side, so analysis propagates the child's
 	// error upward through the proxy's span. Empty by default.
 	ErrPropServiceOpPairs [][2]string
+
+	// Error-breakdown configuration (see error_breakdown.go), mirroring
+	// crisp/utils/span_utils.py; all empty by default.
+	HTTPComponents     []string // component tag values that identify HTTP instrumentation
+	TChannelMarkerTags []string // tag keys whose presence marks a span as TChannel
+	TChannelStatusTags []string // tag keys carrying a TChannel status code
+	YARPCStatusTags    []string // tag keys carrying a YARPC status code, besides rpc.yarpc.status_code
+	IgnoredRootOps     []string // opNames never chosen as a trace root
 )
 
 // isProxyNode mirrors span_utils.isProxyNode.

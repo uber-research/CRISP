@@ -24,6 +24,11 @@ will silently do nothing until the first classification call):
 * ``PROXY_SERVICE_OP_PAIRS``    — ``(serviceName: str, opName: str)``
 * ``PROXY_ONLY_OPS``            — ``opName: str``
 * ``ERR_PROP_SERVICE_OP_PAIRS`` — ``(serviceName: str, opName: str)``
+* ``HTTP_COMPONENTS``           — ``componentTagValue: str``
+* ``TCHANNEL_MARKER_TAGS``      — ``tagKey: str``
+* ``TCHANNEL_STATUS_TAGS``      — ``tagKey: str``
+* ``YARPC_STATUS_TAGS``         — ``tagKey: str``
+* ``IGNORED_ROOT_OPS``          — ``opName: str``
 * ``TEST_TRACE_SERVICES``       — ``serviceName: str``
 * ``TEST_TRACE_OP_PREFIXES``    — ``opNamePrefix: str``
 """
@@ -41,6 +46,20 @@ PROXY_ONLY_OPS: list[str] = []
 # rather than surfaced in the proxy's own span, so analysis should propagate
 # the child's error upward.
 ERR_PROP_SERVICE_OP_PAIRS: list[tuple[str, str]] = []
+
+# --- Error-breakdown configuration (see crisp/error_breakdown.py) ---------
+# ``component`` tag values that identify HTTP instrumentation, for spans that
+# carry no other protocol hint.
+HTTP_COMPONENTS: list[str] = []
+# Tag keys whose presence marks a span as TChannel.
+TCHANNEL_MARKER_TAGS: list[str] = []
+# Tag keys carrying a TChannel status code.
+TCHANNEL_STATUS_TAGS: list[str] = []
+# Tag keys carrying a YARPC status code, in addition to the standard
+# ``rpc.yarpc.status_code``; the protocol comes from ``rpc.transport``.
+YARPC_STATUS_TAGS: list[str] = []
+# opNames never chosen as a trace root (e.g. stray spans from other traces).
+IGNORED_ROOT_OPS: list[str] = []
 
 # --- Test-trace heuristics -------------------------------------------------
 # Service names that identify synthetic/test traffic rather than production.

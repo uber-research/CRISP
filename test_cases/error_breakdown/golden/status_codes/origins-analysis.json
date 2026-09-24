@@ -1,0 +1,247 @@
+{
+  "mode": "origins",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[gateway]/api:http:500;[gateway]call-cache:yarpc_grpc:5",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "/api",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 500
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000005",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "call-cache",
+          "protocol": "yarpc_grpc",
+          "service": "gateway",
+          "statusCode": 5
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[gateway]/api:http:500;[gateway]call-http:http:502",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "/api",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 500
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "000000000000000a",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "call-http",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 502
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[gateway]/api:http:500;[gateway]call-legacy;[legacy]Do:http:404",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "/api",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 500
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000006",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "call-legacy",
+          "protocol": null,
+          "service": "gateway",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000007",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "Do",
+          "protocol": "http",
+          "service": "legacy",
+          "statusCode": 404
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[gateway]/api:http:500;[gateway]call-ok:http:200;[billing]Charge",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "/api",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 500
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "000000000000000b",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "call-ok",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 200
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "000000000000000c",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "Charge",
+          "protocol": null,
+          "service": "billing",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[gateway]/api:http:500;[gateway]call-search:grpc;[search]Query:grpc",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "/api",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 500
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000008",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "call-search",
+          "protocol": "grpc",
+          "service": "gateway",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000009",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "Query",
+          "protocol": "grpc",
+          "service": "search",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[gateway]/api:http:500;[gateway]call-users:grpc:14;[users]GetUser:grpc:14;[users]query",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "/api",
+          "protocol": "http",
+          "service": "gateway",
+          "statusCode": 500
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000002",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "call-users",
+          "protocol": "grpc",
+          "service": "gateway",
+          "statusCode": 14
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000003",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "GetUser",
+          "protocol": "grpc",
+          "service": "users",
+          "statusCode": 14
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000004",
+              "traceID": "status_codes"
+            }
+          ],
+          "operation": "query",
+          "protocol": null,
+          "service": "users",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "analysis",
+  "traces": 1
+}

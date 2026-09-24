@@ -1,0 +1,67 @@
+{
+  "mode": "origins",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[S1]O1;[S3]O3",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "21"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "C",
+              "traceID": "21"
+            }
+          ],
+          "operation": "O3",
+          "protocol": null,
+          "service": "S3",
+          "statusCode": null
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "key": "[S1]O1;[S4]O4",
+      "nodes": [
+        {
+          "exemplars": [
+            {
+              "spanID": "A",
+              "traceID": "21"
+            }
+          ],
+          "operation": "O1",
+          "protocol": null,
+          "service": "S1",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "D",
+              "traceID": "21"
+            }
+          ],
+          "operation": "O4",
+          "protocol": null,
+          "service": "S4",
+          "statusCode": null
+        }
+      ]
+    }
+  ],
+  "root": "trace",
+  "traces": 1
+}

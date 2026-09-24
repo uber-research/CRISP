@@ -1,0 +1,44 @@
+{
+  "mode": "propToRoot",
+  "paths": [
+    {
+      "count": 1,
+      "key": "[INCOMPLETE_TRACE]virtual_root;[a]x;[a]y:grpc:2",
+      "nodes": [
+        {
+          "exemplars": [],
+          "operation": "virtual_root",
+          "protocol": null,
+          "service": "INCOMPLETE_TRACE",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000001",
+              "traceID": "orphans"
+            }
+          ],
+          "operation": "x",
+          "protocol": null,
+          "service": "a",
+          "statusCode": null
+        },
+        {
+          "exemplars": [
+            {
+              "spanID": "0000000000000002",
+              "traceID": "orphans"
+            }
+          ],
+          "operation": "y",
+          "protocol": "grpc",
+          "service": "a",
+          "statusCode": 2
+        }
+      ]
+    }
+  ],
+  "root": "trace",
+  "traces": 1
+}

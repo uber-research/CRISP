@@ -1,0 +1,478 @@
+{
+  "data": [
+    {
+      "traceID": "e0000000000000a1",
+      "spans": [
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000001",
+          "operationName": "root",
+          "references": [],
+          "startTime": 1700000000000000,
+          "duration": 1000,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000002",
+          "operationName": "A1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000000,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000003",
+          "operationName": "A2",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000100,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000004",
+          "operationName": "A3",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000200,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000005",
+          "operationName": "A4",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000300,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000006",
+          "operationName": "A5",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000400,
+          "duration": 100,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000007",
+          "operationName": "A6",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000500,
+          "duration": 100,
+          "tags": [],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000008",
+          "operationName": "A7",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000001"
+            }
+          ],
+          "startTime": 1700000000000600,
+          "duration": 100,
+          "tags": [],
+          "logs": [],
+          "processID": "p2"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000009",
+          "operationName": "B1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000002"
+            }
+          ],
+          "startTime": 1700000000000010,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "000000000000000a",
+          "operationName": "B2",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000003"
+            }
+          ],
+          "startTime": 1700000000000110,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "000000000000000b",
+          "operationName": "B3",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000004"
+            }
+          ],
+          "startTime": 1700000000000210,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "000000000000000c",
+          "operationName": "B4",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000005"
+            }
+          ],
+          "startTime": 1700000000000310,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "000000000000000d",
+          "operationName": "B5",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000006"
+            }
+          ],
+          "startTime": 1700000000000410,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "000000000000000e",
+          "operationName": "B6",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000006"
+            }
+          ],
+          "startTime": 1700000000000420,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            },
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "000000000000000f",
+          "operationName": "B7",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000007"
+            }
+          ],
+          "startTime": 1700000000000510,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000010",
+          "operationName": "B8",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "0000000000000008"
+            }
+          ],
+          "startTime": 1700000000000610,
+          "duration": 50,
+          "tags": [
+            {
+              "key": "error",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "logs": [],
+          "processID": "p2"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000011",
+          "operationName": "C4",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "000000000000000c"
+            }
+          ],
+          "startTime": 1700000000000330,
+          "duration": 10,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000012",
+          "operationName": "C5",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "000000000000000d"
+            }
+          ],
+          "startTime": 1700000000000430,
+          "duration": 10,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        },
+        {
+          "traceID": "e0000000000000a1",
+          "spanID": "0000000000000013",
+          "operationName": "C6",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "e0000000000000a1",
+              "spanID": "000000000000000e"
+            }
+          ],
+          "startTime": 1700000000000440,
+          "duration": 10,
+          "tags": [
+            {
+              "key": "span.kind",
+              "type": "string",
+              "value": "server"
+            }
+          ],
+          "logs": [],
+          "processID": "p1"
+        }
+      ],
+      "processes": {
+        "p1": {
+          "serviceName": "testService",
+          "tags": []
+        },
+        "p2": {
+          "serviceName": "otherService",
+          "tags": []
+        }
+      }
+    }
+  ]
+}

@@ -41,6 +41,9 @@ from crisp.utils.dict_utils import (
 )
 from crisp.slack_drag import calculate_drag, calculate_slack
 from crisp.dependency_graph import DependencyGraph
+from crisp.error_breakdown import (
+    ROOT_ANALYSIS, ROOT_TRACE, compute_trace_breakdown, extract_rpc_status, select_trace_root
+)
 from crisp.retimer import Retimer
 
 # Re-export for backward compatibility
@@ -238,7 +241,11 @@ class Graph:
         exclusionSet=None,
         skipInitializationForTest=False,
         useParquet=False,
+        errorBreakdown=None,
     ) -> None:
+        """errorBreakdown is an optional error_breakdown.ErrorBreakdownOptions;
+        when set, self.errorBreakdown holds this trace's error paths (see
+        compute_trace_breakdown), or None if its root could not be chosen."""
         self.operationName = operationName
         self.serviceName = serviceName
         self.tags = []
@@ -260,6 +267,7 @@ class Graph:
         self.proxyNodes = {}  # maps sid to child count, for sanity checks
         self.filterProxy = filterProxy
         self.numProxyRoots = 0  # number of proxy nodes that are roots
+        self.errorBreakdown = None
         self.retimed = False  # set to True once Retimer.retime_node has mutated this Graph
         # Lazily built by calculateSlack() and reused across every root of a multi-root
         # trace (DependencyGraph depends only on nodeHT, not on which root/cp is being
@@ -283,6 +291,12 @@ class Graph:
             logging.warning(f"self.parseNode failed in file {filename}!")
             logging.warning(f"Exception: {e}")
             return
+
+        # Before root selection and sanitization, which detach or drop spans.
+        if errorBreakdown is not None and errorBreakdown.root == ROOT_TRACE:
+            self.errorBreakdown = compute_trace_breakdown(
+                self, select_trace_root(self, potentialRoots), errorBreakdown.mode
+            )
 
         if len(potentialRoots) == 0:
             logging.warning(f"no root node in file {filename}!")
@@ -321,6 +335,9 @@ class Graph:
                     f"rootTrace == {rootTrace} but no matching node found in file {filename}!",
                 )
                 return
+
+        if errorBreakdown is not None and errorBreakdown.root == ROOT_ANALYSIS:
+            self.errorBreakdown = compute_trace_breakdown(self, self.rootNode, errorBreakdown.mode)
 
         self.sanitizeOverflowingChildren(self.rootNode)
         # Remove operation in exclusionDict from the graph
@@ -738,6 +755,7 @@ class Graph:
                     peerService,
                     hasError,
                 )
+                node.rpcProtocol, node.rpcStatusCode = extract_rpc_status(spanTags)
                 self.storeNodeData(thisSpan, node, self.processName[pid], opName, errPropNodes, spanTags)
 
         self.numErrors = numErrors
