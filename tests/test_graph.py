@@ -3587,3 +3587,71 @@ class TestCrossRegionDetection(TestCase):
 
         # No cross-region calls possible with single span
         self.assertEqual(len(crossRegionCalls), 0)
+
+
+class TestRootSpanId(TestCase):
+    # A -> B, A -> C. X2 has A's service and operation and comes first in DFS
+    # order, so name-based root selection picks it instead of A.
+    @staticmethod
+    def hijackTrace():
+        def span(sid, op, pid, parent=None, start=0, duration=100):
+            refs = [{"refType": "CHILD_OF", "spanID": parent}] if parent else []
+            return {"spanID": sid, "operationName": op, "references": refs,
+                    "startTime": start, "duration": duration, "processID": pid}
+
+        return {"data": [{
+            "spans": [
+                span("X", "other-op", "px", duration=10),
+                span("X2", "opA", "pa", parent="X", duration=10),
+                span("A", "opA", "pa"),
+                span("B", "opB", "pb", parent="A", start=10, duration=50),
+                span("C", "opC", "pc", parent="A", start=60, duration=30),
+            ],
+            "processes": {
+                "pa": {"serviceName": "svc-a"}, "pb": {"serviceName": "svc-b"},
+                "pc": {"serviceName": "svc-c"}, "px": {"serviceName": "other-svc"},
+            },
+        }]}
+
+    def test_name_based_root_is_hijacked(self):
+        g = Graph(self.hijackTrace(), "svc-a", "opA", "t.json", rootTrace=False)
+        self.assertEqual(g.rootNode.sid, "X2")
+
+    def test_root_span_id_selects_span(self):
+        g = Graph(self.hijackTrace(), "ignored", "ignored", "t.json", rootSpanId="A")
+        self.assertEqual(g.rootNode.sid, "A")
+        self.assertIsNone(g.rootNode.parent)
+        self.assertEqual((g.serviceName, g.operationName), ("svc-a", "opA"))
+
+    def test_root_span_id_non_root_span_is_detached(self):
+        g = Graph(self.hijackTrace(), "ignored", "ignored", "t.json", rootSpanId="B")
+        self.assertEqual(g.rootNode.sid, "B")
+        self.assertIsNone(g.rootNode.parent)
+        self.assertIsNone(g.rootNode.parentSpanId)
+
+    def test_root_span_id_unknown(self):
+        g = Graph(self.hijackTrace(), "svc-a", "opA", "t.json", rootSpanId="nope")
+        self.assertIsNone(g.rootNode)
+
+    def test_root_span_id_exclusive_times(self):
+        # Same trace and expectations as Go's TestCriticalPath (times in us):
+        # A[0,100) -> B[10,60) -> E[20,50); A -> C[60,90); A -> D[15,20) in ms.
+        # D overlaps B, so D is not on the critical path.
+        def span(sid, pid, parent, start, duration):
+            refs = [{"refType": "CHILD_OF", "spanID": parent}] if parent else []
+            return {"spanID": sid, "operationName": "op" + sid, "references": refs,
+                    "startTime": start, "duration": duration, "processID": pid}
+
+        trace = {"data": [{
+            "spans": [
+                span("A", "pa", None, 0, 100000),
+                span("B", "pb", "A", 10000, 50000),
+                span("C", "pc", "A", 60000, 30000),
+                span("D", "pd", "A", 15000, 5000),
+                span("E", "pe", "B", 20000, 30000),
+            ],
+            "processes": {p: {"serviceName": "svc-" + p[1]} for p in ("pa", "pb", "pc", "pd", "pe")},
+        }]}
+        g = Graph(trace, "", "", "t.json", rootSpanId="A")
+        _, exclusive = g.accumeCPMetrics(g.findCriticalPath(), "", g.rootNode)
+        self.assertEqual(exclusive, {"A": 20000, "B": 20000, "C": 30000, "E": 30000})

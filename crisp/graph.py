@@ -242,10 +242,18 @@ class Graph:
         skipInitializationForTest=False,
         useParquet=False,
         errorBreakdown=None,
+        rootSpanId=None,
     ) -> None:
         """errorBreakdown is an optional error_breakdown.ErrorBreakdownOptions;
         when set, self.errorBreakdown holds this trace's error paths (see
-        compute_trace_breakdown), or None if its root could not be chosen."""
+        compute_trace_breakdown), or None if its root could not be chosen.
+
+        rootSpanId, when set, selects that span as the root and replaces
+        serviceName/operationName with its own, so a different span with the
+        same service and operation cannot be chosen instead. It implies
+        rootTrace=False; an unknown span ID leaves rootNode as None. A
+        trace-root error breakdown still covers the whole trace; an
+        analysis-root breakdown uses this span."""
         self.operationName = operationName
         self.serviceName = serviceName
         self.tags = []
@@ -297,6 +305,14 @@ class Graph:
             self.errorBreakdown = compute_trace_breakdown(
                 self, select_trace_root(self, potentialRoots), errorBreakdown.mode
             )
+
+        if rootSpanId:
+            root = self.nodeHT.get(rootSpanId)
+            potentialRoots = [root] if root is not None else []
+            if root is not None:
+                self.serviceName = self.processName[root.pid]
+                self.operationName = root.opName
+            rootTrace = False
 
         if len(potentialRoots) == 0:
             logging.warning(f"no root node in file {filename}!")

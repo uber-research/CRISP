@@ -49,6 +49,13 @@ type GraphOptions struct {
 	Config *AnalysisConfig
 	// ErrorBreakdown, when set, computes Graph.ErrorBreakdown.
 	ErrorBreakdown *ErrorBreakdownOptions
+	// RootSpanID mirrors the rootSpanId argument: when set, that span
+	// becomes the root and its service and operation replace
+	// ServiceName/OperationName, so a different span with the same names
+	// cannot be chosen instead. It implies RootTrace=false; an unknown span
+	// ID leaves RootNode nil. An ErrorBreakdownTraceRoot breakdown still
+	// covers the whole trace; ErrorBreakdownAnalysisRoot uses this span.
+	RootSpanID string
 }
 
 // Graph mirrors the construction-time state of crisp.graph.Graph: a Jaeger
@@ -203,6 +210,15 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 	if o.ErrorBreakdown != nil && o.ErrorBreakdown.Root == ErrorBreakdownTraceRoot {
 		root, virtual := g.selectTraceRoot(potentialRoots)
 		g.ErrorBreakdown = g.computeTraceBreakdown(root, virtual, o.ErrorBreakdown.Mode)
+	}
+
+	if o.RootSpanID != "" {
+		potentialRoots = nil
+		if root, ok := g.NodeHT[o.RootSpanID]; ok {
+			potentialRoots = []*Node{root}
+			g.ServiceName, g.OperationName = g.ProcessName[root.ProcessID], root.OpName
+		}
+		rootTrace = false
 	}
 
 	if len(potentialRoots) == 0 {
