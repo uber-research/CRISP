@@ -217,7 +217,19 @@ err := crisp.ProcessSingleTraceData(traceJSON, traceID, cfg) // one in-memory tr
 
 `ProcessSingleTraceData` runs the full pipeline on trace bytes already in memory — no disk read, no subprocess. The library spawns no goroutines and keeps no mutable global state, so callers parallelize simply by calling it from their own goroutines and own the parallelism budget entirely.
 
-For a single trace where only the critical path is needed, `crisp.CriticalPath(ctx, trace, rootSpanID)` takes a decoded `jaeger.Trace` and returns each critical-path span with its exclusive time, writing no files. It selects the root by span ID (`GraphOptions.RootSpanID`; Python: `Graph(..., rootSpanId=...)`), so another span with the same service and operation cannot be chosen instead.
+For a single trace, `crisp.AnalyzeTrace(ctx, trace, rootSpanID, nil)` takes a decoded `jaeger.Trace` and returns each critical-path span with its timestamps, parent, exclusive time, and the time windows it is on the critical path (the [critical-path segments](#single-trace-critical-path-segments), byte-identical to Python's), writing no files. `crisp.CriticalPath(ctx, trace, rootSpanID)` reduces the same analysis to each span's exclusive time. Both select the root by span ID (`GraphOptions.RootSpanID`; Python: `Graph(..., rootSpanId=...)`), so another span with the same service and operation cannot be chosen instead. [`go/tools/cpsegments`](go/tools/cpsegments) takes the flags of `python -m crisp.critical_path_segments` and prints the same JSON.
+
+```go
+analysis, err := crisp.AnalyzeTrace(ctx, trace, rootSpanID, nil)
+if err != nil {
+    return err // errors.Is(err, crisp.ErrRootNotFound) if rootSpanID is not in the trace
+}
+for _, span := range analysis.Spans {
+    for _, seg := range span.Segments {
+        fmt.Println(span.Service, span.Operation, seg.Start, seg.End)
+    }
+}
+```
 
 ### Validation
 
