@@ -54,6 +54,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the CLI, so outputs and goldens are unchanged.
 - Go port: `CriticalPath(ctx, trace, rootSpanID)` returns the critical-path
   spans of a decoded trace with their exclusive times, without file I/O.
+- Go port: `AnalyzeTrace(ctx, trace, rootSpanID, opts)` returns each
+  critical-path span with its timestamps, parent, exclusive time, and
+  critical-path segments (`Graph.CriticalPathSegments`,
+  `CanonicalCPSegmentsJSON`), matching the `cp-segments.json` goldens.
+  `CriticalPath` reduces the same analysis to exclusive times.
+  `go/tools/cpsegments` mirrors `python -m crisp.critical_path_segments`.
 - Tests for `Graph.computePropToRootGraph`.
 
 ### Fixed

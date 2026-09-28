@@ -22,19 +22,33 @@ type CriticalPathContributor struct {
 	Duration time.Duration
 }
 
-// ErrRootNotFound means that the trace has no span with the requested ID.
+// ErrRootNotFound means that the root span ID is empty or that the trace has
+// no span with it.
 var ErrRootNotFound = errors.New("root span not found")
 
-// CriticalPath returns the critical path under the span with ID rootSpanID,
-// sorted by Duration descending, then by SpanID. Unlike the light-mode entry
+// AnalyzeOptions configures AnalyzeTrace. It has no fields yet; nil and the
+// zero value select the defaults.
+type AnalyzeOptions struct{}
+
+// TraceAnalysis is the single-trace analysis of one critical path.
+type TraceAnalysis struct {
+	// Spans are the critical-path spans in critical-path order; Spans[0] is
+	// the root. Their Segments together cover the root span exactly.
+	Spans []CriticalPathSpan
+}
+
+// AnalyzeTrace returns the critical path under the span with ID rootSpanID,
+// with each span's timestamps, exclusive time, and the time windows it is on
+// the critical path (Graph.CriticalPathSegments). Unlike the light-mode entry
 // points it takes an already decoded, non-nil trace and does no file I/O. The
-// graph is built with default options plus GraphOptions.RootSpanID. Durations
-// are the per-span exclusive times from AccumeCPMetrics; the light-mode flame
-// graph sums the same times per call path, but clamps negative sums per call
-// path rather than per span. ctx is checked once, before any work.
-func CriticalPath(ctx context.Context, trace *jaeger.Trace, rootSpanID string) ([]CriticalPathContributor, error) {
+// graph is built with default options plus GraphOptions.RootSpanID. ctx is
+// checked once, before any work.
+func AnalyzeTrace(ctx context.Context, trace *jaeger.Trace, rootSpanID string, opts *AnalyzeOptions) (*TraceAnalysis, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if rootSpanID == "" {
+		return nil, fmt.Errorf("%w: empty span ID", ErrRootNotFound)
 	}
 	g, err := NewGraph(trace, "", "", &GraphOptions{RootSpanID: rootSpanID})
 	if err != nil {
@@ -47,15 +61,26 @@ func CriticalPath(ctx context.Context, trace *jaeger.Trace, rootSpanID string) (
 	if err != nil {
 		return nil, err
 	}
-	_, exclusive := g.AccumeCPMetrics(cp, "", nil)
+	return &TraceAnalysis{Spans: g.CriticalPathSegments(cp)}, nil
+}
 
-	contributors := make([]CriticalPathContributor, len(cp))
-	for i, node := range cp {
+// CriticalPath returns the critical path under the span with ID rootSpanID,
+// sorted by Duration descending, then by SpanID. It is AnalyzeTrace reduced
+// to each span's exclusive time. The light-mode flame graph sums the same
+// times per call path, but clamps negative sums per call path rather than
+// per span.
+func CriticalPath(ctx context.Context, trace *jaeger.Trace, rootSpanID string) ([]CriticalPathContributor, error) {
+	analysis, err := AnalyzeTrace(ctx, trace, rootSpanID, nil)
+	if err != nil {
+		return nil, err
+	}
+	contributors := make([]CriticalPathContributor, len(analysis.Spans))
+	for i, s := range analysis.Spans {
 		contributors[i] = CriticalPathContributor{
-			SpanID:    node.SID,
-			Service:   g.ProcessName[node.ProcessID],
-			Operation: node.OpName,
-			Duration:  time.Duration(exclusive[node.SID]) * time.Microsecond,
+			SpanID:    s.SpanID,
+			Service:   s.Service,
+			Operation: s.Operation,
+			Duration:  s.Exclusive,
 		}
 	}
 	slices.SortFunc(contributors, func(a, b CriticalPathContributor) int {

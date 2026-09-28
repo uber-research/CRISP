@@ -155,7 +155,8 @@ sorted by key. The JSON encoding is the same as `conformance.json`:
 span with the time windows it spends on the critical path — detail that
 merged outputs cannot keep. The golden is `cp-segments.json`, produced by
 `python -m crisp.critical_path_segments --file trace.json -s SERVICE -a
-OPERATION --rootTrace`. Compare it byte-wise.
+OPERATION --rootTrace`. Compare it byte-wise. The Go port's
+`go/tools/cpsegments` takes the same flags.
 
 **Rule.** All times are integer microseconds: each span's `startTime` and
 `endTime` after timeline sanitization. Sanitization can shorten a server
