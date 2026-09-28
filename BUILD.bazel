@@ -166,7 +166,24 @@ py_test(
     deps = [
         "//crisp:common",
         "//crisp:conformance",
+        "//crisp:critical_path_segments",
+        "//crisp:graph",
         "//crisp:process_trace",
+        "@pypi//pytest",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_critical_path_segments",
+    size = "small",
+    srcs = ["tests/test_critical_path_segments.py"],
+    data = glob(["test_cases/**"]),
+    deps = [
+        "//crisp:conformance",
+        "//crisp:critical_path_segments",
+        "//crisp:graph",
+        "//crisp/shared:shared",
         "@pypi//pytest",
     ],
     imports = ["."],

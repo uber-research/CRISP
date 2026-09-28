@@ -1,0 +1,114 @@
+{
+  "spans": [
+    {
+      "endTime": 110,
+      "exclusive": 50,
+      "operation": "O1",
+      "parentSpanID": null,
+      "segments": [
+        [
+          0,
+          10
+        ],
+        [
+          20,
+          30
+        ],
+        [
+          40,
+          50
+        ],
+        [
+          60,
+          70
+        ],
+        [
+          100,
+          110
+        ]
+      ],
+      "service": "S1",
+      "spanID": "A",
+      "startTime": 0
+    },
+    {
+      "endTime": 100,
+      "exclusive": 20,
+      "operation": "O6",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          70,
+          80
+        ],
+        [
+          90,
+          100
+        ]
+      ],
+      "service": "S6",
+      "spanID": "F",
+      "startTime": 70
+    },
+    {
+      "endTime": 90,
+      "exclusive": 10,
+      "operation": "O7",
+      "parentSpanID": "F",
+      "segments": [
+        [
+          80,
+          90
+        ]
+      ],
+      "service": "S7",
+      "spanID": "G",
+      "startTime": 80
+    },
+    {
+      "endTime": 60,
+      "exclusive": 10,
+      "operation": "O5",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          50,
+          60
+        ]
+      ],
+      "service": "S5",
+      "spanID": "E",
+      "startTime": 50
+    },
+    {
+      "endTime": 40,
+      "exclusive": 10,
+      "operation": "O4",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          30,
+          40
+        ]
+      ],
+      "service": "S4",
+      "spanID": "D",
+      "startTime": 30
+    },
+    {
+      "endTime": 20,
+      "exclusive": 10,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          10,
+          20
+        ]
+      ],
+      "service": "S2",
+      "spanID": "B",
+      "startTime": 10
+    }
+  ]
+}

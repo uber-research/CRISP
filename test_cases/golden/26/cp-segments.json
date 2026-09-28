@@ -1,0 +1,116 @@
+{
+  "spans": [
+    {
+      "endTime": 1000,
+      "exclusive": 300,
+      "operation": "O1",
+      "parentSpanID": null,
+      "segments": [
+        [
+          0,
+          100
+        ],
+        [
+          600,
+          700
+        ],
+        [
+          700,
+          750
+        ],
+        [
+          950,
+          1000
+        ]
+      ],
+      "service": "S1",
+      "spanID": "R",
+      "startTime": 0
+    },
+    {
+      "endTime": 950,
+      "exclusive": 0,
+      "operation": "O6",
+      "parentSpanID": "R",
+      "segments": [
+        [
+          945,
+          950
+        ]
+      ],
+      "service": "S1",
+      "spanID": "B",
+      "startTime": 750
+    },
+    {
+      "endTime": 945,
+      "exclusive": 200,
+      "operation": "O7",
+      "parentSpanID": "B",
+      "segments": [
+        [
+          750,
+          945
+        ]
+      ],
+      "service": "S3",
+      "spanID": "T",
+      "startTime": 745
+    },
+    {
+      "endTime": 700,
+      "exclusive": 0,
+      "operation": "O5",
+      "parentSpanID": "R",
+      "segments": [],
+      "service": "S1",
+      "spanID": "Z",
+      "startTime": 700
+    },
+    {
+      "endTime": 600,
+      "exclusive": 0,
+      "operation": "O2",
+      "parentSpanID": "R",
+      "segments": [
+        [
+          100,
+          105
+        ]
+      ],
+      "service": "S1",
+      "spanID": "A",
+      "startTime": 100
+    },
+    {
+      "endTime": 609,
+      "exclusive": 441,
+      "operation": "O3",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          105,
+          550
+        ]
+      ],
+      "service": "S2",
+      "spanID": "S",
+      "startTime": 105
+    },
+    {
+      "endTime": 609,
+      "exclusive": 59,
+      "operation": "O4",
+      "parentSpanID": "S",
+      "segments": [
+        [
+          550,
+          600
+        ]
+      ],
+      "service": "S2",
+      "spanID": "X",
+      "startTime": 550
+    }
+  ]
+}

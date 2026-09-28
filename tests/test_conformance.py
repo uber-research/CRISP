@@ -18,6 +18,8 @@ from crisp.conformance import (
     canonical_cct,
     derive_root_span,
 )
+from crisp.critical_path_segments import CP_SEGMENTS_FILE, canonical_segments_json
+from crisp.graph import Graph
 from crisp.process_trace import lightProcess
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -75,6 +77,19 @@ def test_conformance_matches_golden(name, tmp_path):
             f"{name}/{fname} diverged from golden. If this change is intentional, "
             f"regenerate goldens with scripts/generate_goldens.py"
         )
+
+
+@pytest.mark.parametrize("name", GOLDEN_NAMES)
+def test_cp_segments_match_golden(name):
+    with open(FIXTURES[name], encoding="utf-8") as f:
+        data = json.load(f)
+    service, operation = derive_root_span(data)
+    graph = Graph(data, service, operation, str(FIXTURES[name]), True)
+    actual = canonical_segments_json(graph.criticalPathSegments()).encode("utf-8")
+    assert actual == (GOLDEN_DIR / name / CP_SEGMENTS_FILE).read_bytes(), (
+        f"{name}/{CP_SEGMENTS_FILE} diverged from golden. If this change is intentional, "
+        f"regenerate goldens with scripts/generate_goldens.py"
+    )
 
 
 @pytest.mark.parametrize("name", ["18", "err_pattern4_err1"])

@@ -1,0 +1,129 @@
+{
+  "spans": [
+    {
+      "endTime": 100,
+      "exclusive": 35,
+      "operation": "O1",
+      "parentSpanID": null,
+      "segments": [
+        [
+          0,
+          10
+        ],
+        [
+          20,
+          25
+        ],
+        [
+          35,
+          40
+        ],
+        [
+          50,
+          55
+        ],
+        [
+          65,
+          70
+        ],
+        [
+          80,
+          85
+        ]
+      ],
+      "service": "S1",
+      "spanID": "A",
+      "startTime": 0
+    },
+    {
+      "endTime": 100,
+      "exclusive": 15,
+      "operation": "O3",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          85,
+          100
+        ]
+      ],
+      "service": "S7",
+      "spanID": "G",
+      "startTime": 85
+    },
+    {
+      "endTime": 80,
+      "exclusive": 10,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          70,
+          80
+        ]
+      ],
+      "service": "S6",
+      "spanID": "F",
+      "startTime": 70
+    },
+    {
+      "endTime": 65,
+      "exclusive": 10,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          55,
+          65
+        ]
+      ],
+      "service": "S5",
+      "spanID": "E",
+      "startTime": 55
+    },
+    {
+      "endTime": 50,
+      "exclusive": 10,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          40,
+          50
+        ]
+      ],
+      "service": "S4",
+      "spanID": "D",
+      "startTime": 40
+    },
+    {
+      "endTime": 35,
+      "exclusive": 10,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          25,
+          35
+        ]
+      ],
+      "service": "S3",
+      "spanID": "C",
+      "startTime": 25
+    },
+    {
+      "endTime": 20,
+      "exclusive": 10,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          10,
+          20
+        ]
+      ],
+      "service": "S2",
+      "spanID": "B",
+      "startTime": 10
+    }
+  ]
+}

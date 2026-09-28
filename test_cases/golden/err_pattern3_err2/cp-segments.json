@@ -1,0 +1,44 @@
+{
+  "spans": [
+    {
+      "endTime": 100,
+      "exclusive": 0,
+      "operation": "O1",
+      "parentSpanID": null,
+      "segments": [],
+      "service": "S1",
+      "spanID": "A",
+      "startTime": 0
+    },
+    {
+      "endTime": 100,
+      "exclusive": 70,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          0,
+          70
+        ]
+      ],
+      "service": "S2",
+      "spanID": "B",
+      "startTime": 0
+    },
+    {
+      "endTime": 100,
+      "exclusive": 30,
+      "operation": "O3",
+      "parentSpanID": "B",
+      "segments": [
+        [
+          70,
+          100
+        ]
+      ],
+      "service": "S3",
+      "spanID": "C",
+      "startTime": 70
+    }
+  ]
+}

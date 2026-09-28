@@ -140,6 +140,20 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 | `error*.csv` | Error depth / propagation stats (requires `--errorAnalysis`) |
 | `error-breakdown.json` | Error call paths with counts and exemplars (requires `--errorBreakdown`) |
 
+### Single-trace critical-path segments
+
+The outputs above merge traces, so they keep one exclusive time per call path. For a single trace, `Graph.criticalPathSegments()` also returns when each critical-path span was on the path. Each span's `segments` are the windows of its time, within its parent's, that no critical-path child covers. Across all spans, the segments cover the root span exactly:
+
+```python
+from crisp.graph import Graph
+
+graph = Graph(trace_json, "frontend", "checkout", "trace.json", rootTrace=True)
+for span in graph.criticalPathSegments():
+    print(span.span_id, span.exclusive, span.segments)  # e.g. "a1" 700 ((0, 100), (300, 600), (700, 1000))
+```
+
+`python -m crisp.critical_path_segments --file trace.json -s SERVICE -a OPERATION --rootTrace` prints the same data as JSON. The rule and format are in [CONFORMANCE.md](CONFORMANCE.md#critical-path-segments).
+
 ---
 
 ## HTTP service

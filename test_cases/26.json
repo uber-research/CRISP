@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "traceID": "T26",
+      "processes": {
+        "P1": {"serviceName": "S1", "tags": []},
+        "P2": {"serviceName": "S2", "tags": []},
+        "P3": {"serviceName": "S3", "tags": []}
+      },
+      "spans": [
+        {"traceID": "T26", "spanID": "R", "operationName": "O1", "references": [], "startTime": 0, "duration": 1000, "processID": "P1", "tags": [], "warnings": null},
+        {"traceID": "T26", "spanID": "A", "operationName": "O2", "references": [{"refType": "CHILD_OF", "traceID": "T26", "spanID": "R"}], "startTime": 100, "duration": 500, "processID": "P1", "tags": [{"key": "span.kind", "type": "string", "value": "client"}], "warnings": null},
+        {"traceID": "T26", "spanID": "S", "operationName": "O3", "references": [{"refType": "CHILD_OF", "traceID": "T26", "spanID": "A"}], "startTime": 105, "duration": 504, "processID": "P2", "tags": [{"key": "span.kind", "type": "string", "value": "server"}], "warnings": null},
+        {"traceID": "T26", "spanID": "X", "operationName": "O4", "references": [{"refType": "CHILD_OF", "traceID": "T26", "spanID": "S"}], "startTime": 550, "duration": 59, "processID": "P2", "tags": [], "warnings": null},
+        {"traceID": "T26", "spanID": "Z", "operationName": "O5", "references": [{"refType": "CHILD_OF", "traceID": "T26", "spanID": "R"}], "startTime": 700, "duration": 0, "processID": "P1", "tags": [], "warnings": null},
+        {"traceID": "T26", "spanID": "B", "operationName": "O6", "references": [{"refType": "CHILD_OF", "traceID": "T26", "spanID": "R"}], "startTime": 750, "duration": 200, "processID": "P1", "tags": [{"key": "span.kind", "type": "string", "value": "client"}], "warnings": null},
+        {"traceID": "T26", "spanID": "T", "operationName": "O7", "references": [{"refType": "CHILD_OF", "traceID": "T26", "spanID": "B"}], "startTime": 745, "duration": 200, "processID": "P3", "tags": [{"key": "span.kind", "type": "string", "value": "server"}], "warnings": null}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,159 @@
+{
+  "spans": [
+    {
+      "endTime": 700,
+      "exclusive": 100,
+      "operation": "O1",
+      "parentSpanID": null,
+      "segments": [
+        [
+          0,
+          50
+        ],
+        [
+          350,
+          400
+        ]
+      ],
+      "service": "S1",
+      "spanID": "A",
+      "startTime": 0
+    },
+    {
+      "endTime": 700,
+      "exclusive": 150,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          400,
+          450
+        ],
+        [
+          500,
+          550
+        ],
+        [
+          600,
+          650
+        ]
+      ],
+      "service": "S2",
+      "spanID": "F",
+      "startTime": 400
+    },
+    {
+      "endTime": 700,
+      "exclusive": 50,
+      "operation": "O3",
+      "parentSpanID": "F",
+      "segments": [
+        [
+          650,
+          700
+        ]
+      ],
+      "service": "S3",
+      "spanID": "I",
+      "startTime": 650
+    },
+    {
+      "endTime": 600,
+      "exclusive": 50,
+      "operation": "O3",
+      "parentSpanID": "F",
+      "segments": [
+        [
+          550,
+          600
+        ]
+      ],
+      "service": "S3",
+      "spanID": "H",
+      "startTime": 550
+    },
+    {
+      "endTime": 500,
+      "exclusive": 50,
+      "operation": "O3",
+      "parentSpanID": "F",
+      "segments": [
+        [
+          450,
+          500
+        ]
+      ],
+      "service": "S3",
+      "spanID": "G",
+      "startTime": 450
+    },
+    {
+      "endTime": 350,
+      "exclusive": 150,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          50,
+          100
+        ],
+        [
+          150,
+          200
+        ],
+        [
+          250,
+          300
+        ]
+      ],
+      "service": "S2",
+      "spanID": "B",
+      "startTime": 50
+    },
+    {
+      "endTime": 350,
+      "exclusive": 50,
+      "operation": "O3",
+      "parentSpanID": "B",
+      "segments": [
+        [
+          300,
+          350
+        ]
+      ],
+      "service": "S3",
+      "spanID": "E",
+      "startTime": 300
+    },
+    {
+      "endTime": 250,
+      "exclusive": 50,
+      "operation": "O3",
+      "parentSpanID": "B",
+      "segments": [
+        [
+          200,
+          250
+        ]
+      ],
+      "service": "S3",
+      "spanID": "D",
+      "startTime": 200
+    },
+    {
+      "endTime": 150,
+      "exclusive": 50,
+      "operation": "O3",
+      "parentSpanID": "B",
+      "segments": [
+        [
+          100,
+          150
+        ]
+      ],
+      "service": "S3",
+      "spanID": "C",
+      "startTime": 100
+    }
+  ]
+}

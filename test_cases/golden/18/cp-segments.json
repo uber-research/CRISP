@@ -1,0 +1,171 @@
+{
+  "spans": [
+    {
+      "endTime": 250,
+      "exclusive": 50,
+      "operation": "O1",
+      "parentSpanID": null,
+      "segments": [
+        [
+          0,
+          10
+        ],
+        [
+          110,
+          120
+        ],
+        [
+          220,
+          250
+        ]
+      ],
+      "service": "S1",
+      "spanID": "A",
+      "startTime": 0
+    },
+    {
+      "endTime": 220,
+      "exclusive": 40,
+      "operation": "O6",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          120,
+          140
+        ],
+        [
+          200,
+          220
+        ]
+      ],
+      "service": "S6",
+      "spanID": "F",
+      "startTime": 120
+    },
+    {
+      "endTime": 200,
+      "exclusive": 30,
+      "operation": "O7",
+      "parentSpanID": "F",
+      "segments": [
+        [
+          140,
+          150
+        ],
+        [
+          170,
+          180
+        ],
+        [
+          190,
+          200
+        ]
+      ],
+      "service": "S7",
+      "spanID": "G",
+      "startTime": 140
+    },
+    {
+      "endTime": 190,
+      "exclusive": 10,
+      "operation": "O9",
+      "parentSpanID": "G",
+      "segments": [
+        [
+          180,
+          190
+        ]
+      ],
+      "service": "S9",
+      "spanID": "I",
+      "startTime": 180
+    },
+    {
+      "endTime": 170,
+      "exclusive": 20,
+      "operation": "O8",
+      "parentSpanID": "G",
+      "segments": [
+        [
+          150,
+          170
+        ]
+      ],
+      "service": "S8",
+      "spanID": "H",
+      "startTime": 150
+    },
+    {
+      "endTime": 110,
+      "exclusive": 70,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          10,
+          30
+        ],
+        [
+          40,
+          50
+        ],
+        [
+          60,
+          70
+        ],
+        [
+          80,
+          110
+        ]
+      ],
+      "service": "S2",
+      "spanID": "B",
+      "startTime": 10
+    },
+    {
+      "endTime": 80,
+      "exclusive": 10,
+      "operation": "O5",
+      "parentSpanID": "B",
+      "segments": [
+        [
+          70,
+          80
+        ]
+      ],
+      "service": "S5",
+      "spanID": "E",
+      "startTime": 70
+    },
+    {
+      "endTime": 60,
+      "exclusive": 10,
+      "operation": "O4",
+      "parentSpanID": "B",
+      "segments": [
+        [
+          50,
+          60
+        ]
+      ],
+      "service": "S4",
+      "spanID": "D",
+      "startTime": 50
+    },
+    {
+      "endTime": 40,
+      "exclusive": 10,
+      "operation": "O3",
+      "parentSpanID": "B",
+      "segments": [
+        [
+          30,
+          40
+        ]
+      ],
+      "service": "S3",
+      "spanID": "C",
+      "startTime": 30
+    }
+  ]
+}

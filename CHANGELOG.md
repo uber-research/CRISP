@@ -27,6 +27,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   previous behavior.
 - Go port: `LightConfig.FilterProxy` and a `--filterProxy` CLI flag,
   matching the Python CLI.
+- Critical-path segments (`crisp/critical_path_segments.py`):
+  `Graph.criticalPathSegments()` returns each critical-path span of one
+  trace with its timestamps, parent, exclusive time, and the time windows
+  it is on the critical path. `python -m crisp.critical_path_segments`
+  prints it as canonical JSON. Spec in CONFORMANCE.md; `cp-segments.json`
+  goldens for every fixture. Existing outputs are unchanged.
 - Error breakdown (`crisp/error_breakdown.py`, Go port
   `go/crisp/error_breakdown.go`): `--errorBreakdown {origins,propToRoot}`
   and `--errorBreakdownRoot {trace,analysis}` write `error-breakdown.json`
