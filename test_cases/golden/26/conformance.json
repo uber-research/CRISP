@@ -1,0 +1,170 @@
+{
+  "report_window_1": [
+    {
+      "base": {
+        "duration": "0.000300s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "exemplars": [
+            {
+              "span_id": "R",
+              "trace_id": "26"
+            }
+          ],
+          "operation_name": "O1",
+          "service": "S1"
+        }
+      ]
+    },
+    {
+      "base": {
+        "duration": "0s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "operation_name": "O1",
+          "service": "S1"
+        },
+        {
+          "exemplars": [
+            {
+              "span_id": "A",
+              "trace_id": "26"
+            }
+          ],
+          "operation_name": "O2",
+          "service": "S1"
+        }
+      ]
+    },
+    {
+      "base": {
+        "duration": "0.000441s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "operation_name": "O1",
+          "service": "S1"
+        },
+        {
+          "operation_name": "O2",
+          "service": "S1"
+        },
+        {
+          "exemplars": [
+            {
+              "span_id": "S",
+              "trace_id": "26"
+            }
+          ],
+          "operation_name": "O3",
+          "service": "S2"
+        }
+      ]
+    },
+    {
+      "base": {
+        "duration": "0.000059s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "operation_name": "O1",
+          "service": "S1"
+        },
+        {
+          "operation_name": "O2",
+          "service": "S1"
+        },
+        {
+          "operation_name": "O3",
+          "service": "S2"
+        },
+        {
+          "exemplars": [
+            {
+              "span_id": "X",
+              "trace_id": "26"
+            }
+          ],
+          "operation_name": "O4",
+          "service": "S2"
+        }
+      ]
+    },
+    {
+      "base": {
+        "duration": "0.000001s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "operation_name": "O1",
+          "service": "S1"
+        },
+        {
+          "exemplars": [
+            {
+              "span_id": "Z",
+              "trace_id": "26"
+            }
+          ],
+          "operation_name": "O5",
+          "service": "S1"
+        }
+      ]
+    },
+    {
+      "base": {
+        "duration": "0s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "operation_name": "O1",
+          "service": "S1"
+        },
+        {
+          "exemplars": [
+            {
+              "span_id": "B",
+              "trace_id": "26"
+            }
+          ],
+          "operation_name": "O6",
+          "service": "S1"
+        }
+      ]
+    },
+    {
+      "base": {
+        "duration": "0.000200s",
+        "frequency": 1
+      },
+      "call_path": [
+        {
+          "operation_name": "O1",
+          "service": "S1"
+        },
+        {
+          "operation_name": "O6",
+          "service": "S1"
+        },
+        {
+          "exemplars": [
+            {
+              "span_id": "T",
+              "trace_id": "26"
+            }
+          ],
+          "operation_name": "O7",
+          "service": "S3"
+        }
+      ]
+    }
+  ]
+}

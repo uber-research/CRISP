@@ -32,6 +32,7 @@ ERROR_BREAKDOWN_ROOTS = ("trace", "analysis")
 sys.path.insert(0, str(REPO_ROOT))
 
 from crisp.conformance import derive_root_span  # noqa: E402
+from crisp.critical_path_segments import CP_SEGMENTS_FILE  # noqa: E402
 
 import json  # noqa: E402
 
@@ -76,6 +77,21 @@ def run_cli(fixture: Path, args: list[str], outputs: dict[str, str]) -> dict[str
                 raise RuntimeError(f"CLI did not produce {out_name} for {fixture}")
             data[golden_name] = out_path.read_bytes()
         return data
+
+
+def run_segments(fixture: Path, service: str, operation: str) -> bytes:
+    """Return the critical-path segments JSON for a fixture, from a fresh subprocess."""
+    cmd = [
+        sys.executable, "-m", "crisp.critical_path_segments", "--file", str(fixture),
+        "-s", service, "-a", operation, "--rootTrace",
+    ]
+    result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"crisp.critical_path_segments failed for {fixture} (exit {result.returncode}):\n"
+            f"stderr:\n{result.stderr.decode(errors='replace')}"
+        )
+    return result.stdout
 
 
 def conformance_runs(service: str, operation: str) -> list[tuple[list[str], dict[str, str]]]:
@@ -137,6 +153,11 @@ def main() -> int:
                 if first != second:
                     raise RuntimeError(f"outputs differ between two runs of {args} (nondeterminism!)")
                 outputs.update(first)
+            if golden_dir == GOLDEN_DIR:
+                first = run_segments(fixture, service, operation)
+                if first != run_segments(fixture, service, operation):
+                    raise RuntimeError(f"{CP_SEGMENTS_FILE} differs between two runs (nondeterminism!)")
+                outputs[CP_SEGMENTS_FILE] = first
         except RuntimeError as e:
             print(f"FAIL {name}: {e}")
             failures.append(name)

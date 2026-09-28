@@ -149,12 +149,71 @@ sorted by key. The JSON encoding is the same as `conformance.json`:
 
 `protocol` and `statusCode` are `null` for non-RPC spans and when absent.
 
+## Critical-path segments
+
+`crisp/critical_path_segments.py` reports, for one trace, each critical-path
+span with the time windows it spends on the critical path — detail that
+merged outputs cannot keep. The golden is `cp-segments.json`, produced by
+`python -m crisp.critical_path_segments --file trace.json -s SERVICE -a
+OPERATION --rootTrace`. Compare it byte-wise.
+
+**Rule.** All times are integer microseconds: each span's `startTime` and
+`endTime` after timeline sanitization. Sanitization can shorten a server
+span's `duration` to its client's without moving its `endTime`, so never
+recompute `endTime` as `startTime + duration`.
+
+Each span has an effective window: `[startTime, endTime]`, clipped to its
+parent's effective window (the root keeps its own). The span's
+critical-path children are taken in `startTime` order; tie order does not
+affect the output. A cursor starts at the window's start. Each child emits
+`[cursor, child.startTime]`, then moves the cursor to
+`max(cursor, child.endTime)`. After the last child, `[cursor, window end]`
+is emitted. Every emitted window is clipped to the effective window, and
+empty ones are dropped. Adjacent windows are not merged.
+
+Across all spans, the segments cover the root span exactly. They are
+disjoint unless two critical-path siblings overlap within the
+`happensBefore` clock-skew allowance; the overlap is then covered in both
+siblings' subtrees. `exclusive` is the per-span exclusive time from
+`accumeCPMetrics`: `duration` minus the `duration`s of critical-path
+children, clamped at zero. It equals the span's segment total when the
+span's effective window is its whole interval and its critical-path
+children lie within that interval without overlapping each other.
+
+**Output.** Spans are in critical-path order (`findCriticalPath`, root
+first). The JSON encoding is the same as `conformance.json`: sorted keys,
+two-space indent, non-ASCII characters written as UTF-8 rather than
+escaped, and one trailing newline. `parentSpanID` is `null` for the root. A
+span with no segments has `"segments": []`, never `null`.
+
+```json
+{
+  "spans": [
+    {
+      "endTime": 100,
+      "exclusive": 70,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [[0, 70]],
+      "service": "S1",
+      "spanID": "B",
+      "startTime": 0
+    }
+  ]
+}
+```
+
+(The example compacts `segments`; the file writes each number on its own
+line.) `test_cases/26.json` covers clipping, a shortened server duration,
+and a zero-duration span.
+
 ## Goldens
 
 `test_cases/golden/<fixture>/` holds conformance outputs for every fixture
 (top-level `*.json` and `err_pattern*/*.json`; `/` becomes `_` in the name).
 
-- Each also holds `error-breakdown-{origins,propToRoot}.json` (`trace` root).
+- Each also holds `error-breakdown-{origins,propToRoot}.json` (`trace` root)
+  and `cp-segments.json`.
 - `test_cases/error_breakdown/*.json` are error-breakdown fixtures; their
   goldens, `test_cases/error_breakdown/golden/<fixture>/<mode>-<root>.json`,
   cover all four mode/root combinations (with `--rootTrace` off).

@@ -55,6 +55,7 @@ py_library(
         ":common",
         ":configuration",
         ":constants",
+        ":critical_path_segments",
         ":dependency_graph",
         ":error_breakdown",
         ":pkg",
@@ -63,6 +64,17 @@ py_library(
         "//crisp/shared:shared",
         "//crisp/utils:utils",
     ],
+)
+
+py_library(
+    name = "critical_path_segments",
+    srcs = ["critical_path_segments.py"],
+    visibility = ["//visibility:public"],
+    # NOTE: only main() imports crisp.graph, lazily, for the
+    # `python -m crisp.critical_path_segments` entry point; a `:graph` dep
+    # here would be a cycle, since `:graph` depends on this target.
+    # Targets that call main() must depend on `:graph` themselves.
+    deps = [],
 )
 
 py_library(

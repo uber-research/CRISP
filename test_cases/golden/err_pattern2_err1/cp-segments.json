@@ -1,0 +1,34 @@
+{
+  "spans": [
+    {
+      "endTime": 100,
+      "exclusive": 70,
+      "operation": "O1",
+      "parentSpanID": null,
+      "segments": [
+        [
+          0,
+          70
+        ]
+      ],
+      "service": "S1",
+      "spanID": "A",
+      "startTime": 0
+    },
+    {
+      "endTime": 100,
+      "exclusive": 30,
+      "operation": "O2",
+      "parentSpanID": "A",
+      "segments": [
+        [
+          70,
+          100
+        ]
+      ],
+      "service": "S2",
+      "spanID": "B",
+      "startTime": 70
+    }
+  ]
+}

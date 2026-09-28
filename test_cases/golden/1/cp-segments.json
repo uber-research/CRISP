@@ -1,0 +1,19 @@
+{
+  "spans": [
+    {
+      "endTime": 100,
+      "exclusive": 100,
+      "operation": "O1",
+      "parentSpanID": null,
+      "segments": [
+        [
+          0,
+          100
+        ]
+      ],
+      "service": "S1",
+      "spanID": "A",
+      "startTime": 0
+    }
+  ]
+}

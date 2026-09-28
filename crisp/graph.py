@@ -39,6 +39,7 @@ from crisp.configuration import (
 from crisp.utils.dict_utils import (
     accumulateInDict, getCPSize
 )
+from crisp.critical_path_segments import critical_path_segments
 from crisp.slack_drag import calculate_drag, calculate_slack
 from crisp.dependency_graph import DependencyGraph
 from crisp.error_breakdown import (
@@ -2009,6 +2010,19 @@ class Graph:
         if cp is None:
             cp = self.findCriticalPath()
         return calculate_drag(self, cp, exclusive)
+
+    def criticalPathSegments(self, cp=None):
+        """Return each critical-path span with the time windows it is on the path.
+
+        See :mod:`crisp.critical_path_segments` for the definition.
+
+        Args:
+            cp: Optional critical path (as returned by findCriticalPath()).
+                If None, uses findCriticalPath() on this Graph's own rootNode.
+        """
+        if cp is None:
+            cp = self.findCriticalPath()
+        return critical_path_segments(self, cp)
 
     def calculateSlack(self, cp=None, dependency_graph=None):
         """Calculate slack for every node in this Graph.
