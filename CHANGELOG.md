@@ -42,6 +42,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `YARPC_STATUS_TAGS`, `IGNORED_ROOT_OPS` (Go: `HTTPComponents`,
   `TChannelMarkerTags`, `TChannelStatusTags`, `YARPCStatusTags`,
   `IgnoredRootOps`).
+- Root selection by span ID: `Graph(..., rootSpanId=...)` (Go:
+  `GraphOptions.RootSpanID`) makes that span the root, so another span with
+  the same service and operation cannot be chosen instead. Not exposed on
+  the CLI, so outputs and goldens are unchanged.
+- Go port: `CriticalPath(ctx, trace, rootSpanID)` returns the critical-path
+  spans of a decoded trace with their exclusive times, without file I/O.
 - Tests for `Graph.computePropToRootGraph`.
 
 ### Fixed

@@ -203,6 +203,8 @@ err := crisp.ProcessSingleTraceData(traceJSON, traceID, cfg) // one in-memory tr
 
 `ProcessSingleTraceData` runs the full pipeline on trace bytes already in memory — no disk read, no subprocess. The library spawns no goroutines and keeps no mutable global state, so callers parallelize simply by calling it from their own goroutines and own the parallelism budget entirely.
 
+For a single trace where only the critical path is needed, `crisp.CriticalPath(ctx, trace, rootSpanID)` takes a decoded `jaeger.Trace` and returns each critical-path span with its exclusive time, writing no files. It selects the root by span ID (`GraphOptions.RootSpanID`; Python: `Graph(..., rootSpanId=...)`), so another span with the same service and operation cannot be chosen instead.
+
 ### Validation
 
 Byte-parity against the Python reference is enforced by a [difftest harness](go/tools/difftest) that compares all six light-mode outputs per trace (`slackDrag.csv` is compared row-sorted; pandas' sort is not stable across tied values):
