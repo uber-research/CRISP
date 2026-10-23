@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 
 	"github.com/uber-research/CRISP/go/crisp"
@@ -36,6 +37,8 @@ func main() {
 		rootTrace, lightMode, conformance  bool
 		ignoreTestTraces, computeSlackDrag bool
 		filterProxy                        bool
+		rejectSubtreeIncomplete            bool
+		minDuration, maxDuration           *int64
 		maxExemplars, parallelism          int
 		tags, excludeFromCP                string
 		cpuProfile                         string
@@ -59,6 +62,9 @@ func main() {
 	flag.StringVar(&errorBreakdown, "errorBreakdown", "", "Also write error-breakdown.json, the error call paths keyed by RPC protocol and status code: 'origins' (every erroring span with no erroring child) or 'propToRoot' (only errors that propagate to the root). See CONFORMANCE.md.")
 	flag.StringVar(&errorBreakdownRoot, "errorBreakdownRoot", string(crisp.ErrorBreakdownTraceRoot), "Where the error breakdown starts: 'trace' (the trace's root span) or 'analysis' (the root chosen for -s/-a).")
 	flag.BoolVar(&filterProxy, "filterProxy", false, "Short-wire proxy spans and enable error-propagation nodes (no effect unless the span_utils proxy/err-prop lists are populated).")
+	flag.Func("minDuration", "In light mode, skip traces whose analysis root span is shorter than this many microseconds (inclusive bound; default: no bound).", durationBound(&minDuration))
+	flag.Func("maxDuration", "In light mode, skip traces whose analysis root span is longer than this many microseconds (inclusive bound; default: no bound).", durationBound(&maxDuration))
+	flag.BoolVar(&rejectSubtreeIncomplete, "rejectSubtreeIncomplete", false, "In light mode, leave out traces whose analysis subtree is incomplete: a service with an orphan span (its CHILD_OF parent is not in the trace) also appears under the analysis root.")
 	flag.BoolVar(&computeSlackDrag, "computeSlackDrag", false, "Not supported by the Go port (slack computation is not ported).")
 	flag.IntVar(&parallelism, "parallelism", 1, "accepted for compatibility; analysis runs sequentially (outputs are identical)")
 	flag.StringVar(&tags, "tags", "", "accepted for compatibility; unused in light mode (mirrors Python)")
@@ -127,16 +133,19 @@ func main() {
 	}
 
 	cfg := &crisp.LightConfig{
-		ServiceName:      serviceName,
-		OperationName:    operationName,
-		RootTrace:        rootTrace,
-		Conformance:      conformance,
-		MaxExemplars:     maxExemplars,
-		IgnoreTestTraces: ignoreTestTraces,
-		FilterProxy:      filterProxy,
-		ErrorBreakdown:   errorBreakdownOpts,
-		TraceFiles:       traceFiles,
-		OutputDir:        outDir,
+		ServiceName:             serviceName,
+		OperationName:           operationName,
+		RootTrace:               rootTrace,
+		Conformance:             conformance,
+		MaxExemplars:            maxExemplars,
+		IgnoreTestTraces:        ignoreTestTraces,
+		FilterProxy:             filterProxy,
+		MinDuration:             minDuration,
+		MaxDuration:             maxDuration,
+		ErrorBreakdown:          errorBreakdownOpts,
+		RejectSubtreeIncomplete: rejectSubtreeIncomplete,
+		TraceFiles:              traceFiles,
+		OutputDir:               outDir,
 	}
 	if err := crisp.LightProcess(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "crisp:", err)
@@ -164,4 +173,17 @@ func globJSONDirOrder(dir string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// durationBound returns a flag.Func setter that parses an int (microseconds,
+// like Python's type=int) into *dst, so an unset flag stays nil.
+func durationBound(dst **int64) func(string) error {
+	return func(v string) error {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return err
+		}
+		*dst = &n
+		return nil
+	}
 }

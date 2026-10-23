@@ -8,6 +8,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Light-mode cohort filters, in Python and the Go port with identical outputs:
+  `--minDuration`/`--maxDuration` skip traces whose analysis root is outside
+  the given duration in microseconds (inclusive), and
+  `--rejectSubtreeIncomplete` leaves out traces whose analysis subtree is
+  incomplete (a service with an orphan span also appears under the analysis
+  root). Go: `LightConfig.MinDuration`, `MaxDuration` and
+  `RejectSubtreeIncomplete`. All default off; existing outputs are unchanged.
+- Structural orphan detection: `Graph.orphanSpanIds` and
+  `Graph.get_orphan_services()` (Go: `Graph.OrphanSpanIDs`,
+  `OrphanServices()`). An orphan is a span whose parent span ID is set but
+  not in the trace; a child of a short-wired proxy with no parent is a root,
+  not an orphan.
 - Full critical-path analysis pipeline: error analysis helpers, flamegraph
   tag filters, and orchestration (`performCriticalPathAnalysis`,
   `performErrorAnalysis`, `processReal`, `lightProcess`, `main()`).
@@ -62,6 +74,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `go/tools/cpsegments` mirrors `python -m crisp.critical_path_segments`.
 - Tests for `Graph.computePropToRootGraph`.
 
+### Removed
+- `check_trace_completeness()` and `collect_orphan_span_services()` in
+  `crisp/process_trace.py`. They read Jaeger "invalid parent span IDs" span
+  warnings, were never called, and are replaced by the structural check,
+  which also works when warnings are stripped.
+
 ### Fixed
 - `--errorAnalysis` flame graphs of errors propagated to the root were always
   empty: `process()` passed `{}` to `getMetrics` instead of
@@ -69,6 +87,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   write a non-empty `errorsPropToRoot-flame-graph-P100` output.
 
 ### Changed
+- `process()` now sets `Metrics.isIncomplete` and `isSubtreeIncomplete` from
+  the structural orphan check, so the `[IncompleteTraceReport]` log reports
+  real counts (it previously always reported zero).
 - `difftest -mode golden` checks only the conformance fixtures
   (`test_cases/*.json`, `test_cases/err_pattern*/*.json`), like
   `scripts/generate_goldens.py`; `-strict` corpus mode also compares
