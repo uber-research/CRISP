@@ -168,6 +168,9 @@ class Config:
         computeSlackDrag: bool = False,
         errorBreakdown: typing.Optional[str] = None,
         errorBreakdownRoot: str = "trace",
+        minDuration: typing.Optional[int] = None,
+        maxDuration: typing.Optional[int] = None,
+        rejectSubtreeIncomplete: bool = False,
     ):
         self.operationName = operationName
         self.serviceName = serviceName
@@ -215,6 +218,12 @@ class Config:
         self.conformance = conformance
         self.mergeAllRoots = mergeAllRoots
         self.maxExemplars = maxExemplars
+        # Light-mode cohort filters on the analysis root: duration bounds in
+        # microseconds (inclusive; None = no bound) and rejection of traces whose
+        # analysis subtree is incomplete (see process_trace.lightProcess).
+        self.minDuration = minDuration
+        self.maxDuration = maxDuration
+        self.rejectSubtreeIncomplete = rejectSubtreeIncomplete
         self.computeSlackDrag = computeSlackDrag
         # Error-breakdown mode ("origins" | "propToRoot") or None to skip it,
         # and its root mode ("trace" | "analysis"); see crisp/error_breakdown.py.

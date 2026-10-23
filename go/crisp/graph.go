@@ -97,6 +97,12 @@ type Graph struct {
 	FilterProxy   bool
 	NumProxyRoots int
 
+	// OrphanSpanIDs mirrors orphanSpanIds: spans whose parent span ID is set
+	// but not in the trace (sampling loss). A child of a short-wired proxy
+	// that has no parent is a root, not an orphan: its own parent, the
+	// proxy, is in the trace.
+	OrphanSpanIDs map[string]bool
+
 	exclusionSet map[ServiceOp]bool
 	config       AnalysisConfig
 
@@ -285,6 +291,10 @@ func (g *Graph) buildParentChildRelationships() []*Node {
 			continue
 		}
 		if _, ok := g.NodeHT[*parentID]; !ok {
+			if g.OrphanSpanIDs == nil {
+				g.OrphanSpanIDs = map[string]bool{}
+			}
+			g.OrphanSpanIDs[spanID] = true
 			potentialRoots = append(potentialRoots, me)
 			continue
 		}
@@ -336,6 +346,16 @@ func (g *Graph) propagateErrors(me *Node, errPropNodes map[string]int) {
 	if !me.ReturnError && child.ReturnError {
 		me.ReturnError = child.ReturnError
 	}
+}
+
+// OrphanServices mirrors get_orphan_services: the service names of all
+// orphan spans.
+func (g *Graph) OrphanServices() map[string]bool {
+	services := make(map[string]bool, len(g.OrphanSpanIDs))
+	for spanID := range g.OrphanSpanIDs {
+		services[g.ProcessName[g.NodeHT[spanID].ProcessID]] = true
+	}
+	return services
 }
 
 // findARoot mirrors graph.py's DFS for the first node matching the required

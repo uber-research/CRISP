@@ -63,58 +63,6 @@ logging.basicConfig(
 )
 debug_on = logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
-INVALID_PARENT_SPAN_WARNING = "invalid parent span IDs"
-
-
-def check_trace_completeness(data: dict) -> tuple[bool, str]:
-    """Check whether a Jaeger JSON trace is incomplete due to sampling limitations.
-
-    A trace is considered incomplete when any span carries an
-    "invalid parent span IDs" warning, which Jaeger emits when a span
-    references a parent that was not captured in the trace.
-    Bails out on the first match since one orphan span is enough.
-
-    Args:
-        data: Parsed Jaeger JSON trace (the top-level dict with a "data" key).
-
-    Returns:
-        Tuple of (is_incomplete, trace_id).
-    """
-    trace_id = ""
-    for item in data.get("data", []):
-        if not trace_id:
-            trace_id = item.get("traceID", "")
-        for span in item.get("spans", []):
-            for warning in span.get("warnings") or []:
-                if INVALID_PARENT_SPAN_WARNING in warning:
-                    return True, trace_id
-    return False, trace_id
-
-
-def collect_orphan_span_services(data: dict) -> set[str]:
-    """Collect service names of all orphan spans in an incomplete Jaeger JSON trace.
-
-    Only called when the trace is already known to be incomplete.
-
-    Args:
-        data: Parsed Jaeger JSON trace.
-
-    Returns:
-        Set of service names that have at least one orphan span.
-    """
-    orphan_services: set[str] = set()
-    for item in data.get("data", []):
-        processes = item.get("processes", {})
-        for span in item.get("spans", []):
-            for warning in span.get("warnings") or []:
-                if INVALID_PARENT_SPAN_WARNING in warning:
-                    pid = span.get("processID", "")
-                    service = processes.get(pid, {}).get("serviceName", "unknown")
-                    orphan_services.add(service)
-                    break
-    return orphan_services
-
-
 def get_subtree_services(root_node, process_name: dict) -> set[str]:
     """Collect all service names reachable from root_node in the parsed graph.
 
@@ -411,6 +359,45 @@ def initArgs():
     )
 
     argParser.add_argument(
+        "--minDuration",
+        dest="minDuration",
+        action="store",
+        default=None,
+        required=False,
+        type=int,
+        help=(
+            "In light mode, skip traces whose analysis root span is shorter than this many "
+            "microseconds (inclusive bound; default: no bound)."
+        ),
+    )
+
+    argParser.add_argument(
+        "--maxDuration",
+        dest="maxDuration",
+        action="store",
+        default=None,
+        required=False,
+        type=int,
+        help=(
+            "In light mode, skip traces whose analysis root span is longer than this many "
+            "microseconds (inclusive bound; default: no bound)."
+        ),
+    )
+
+    argParser.add_argument(
+        "--rejectSubtreeIncomplete",
+        dest="rejectSubtreeIncomplete",
+        action="store_true",
+        default=False,
+        required=False,
+        help=(
+            "In light mode, leave out traces whose analysis subtree is incomplete: a service "
+            "with an orphan span (its CHILD_OF parent is not in the trace) also appears under "
+            "the analysis root."
+        ),
+    )
+
+    argParser.add_argument(
         "--computeSlackDrag",
         dest="computeSlackDrag",
         action="store_true",
@@ -534,6 +521,9 @@ def initArgs():
         computeSlackDrag=computeSlackDrag,
         errorBreakdown=args.errorBreakdown,
         errorBreakdownRoot=args.errorBreakdownRoot,
+        minDuration=args.minDuration,
+        maxDuration=args.maxDuration,
+        rejectSubtreeIncomplete=args.rejectSubtreeIncomplete,
     )
     c.jaegerTraceFiles = jaegerTraceFiles
     c.outputDir = args.outputDir if args.outputDir else tracesDir
@@ -664,6 +654,13 @@ def _errorBreakdownOptions(config: common.Config) -> Optional[ErrorBreakdownOpti
     return ErrorBreakdownOptions(errorBreakdown, getattr(config, "errorBreakdownRoot", ROOT_TRACE))
 
 
+def _rootDurationInRange(duration: int, config: common.Config) -> bool:
+    """Whether the analysis root's duration (us) is within [minDuration, maxDuration], inclusive."""
+    minDuration = getattr(config, "minDuration", None)
+    maxDuration = getattr(config, "maxDuration", None)
+    return (minDuration is None or duration >= minDuration) and (maxDuration is None or duration <= maxDuration)
+
+
 def process(filename: str, config: common.Config) -> Any:
     """Process one Jaeger JSON trace file and return its Metrics, or None to skip."""
     with open(filename, "r") as f:
@@ -683,6 +680,13 @@ def process(filename: str, config: common.Config) -> Any:
         return None
 
     if config.ignoreTestTraces and graph.isTestTrace:
+        return None
+
+    # Light-mode duration bounds apply to the analysis root, not the trace root.
+    # Like the other skips above, an out-of-range trace produces no metrics.
+    # --conformance alone also runs the light-mode pipeline (see main()).
+    lightPipeline = config.lightMode or getattr(config, "conformance", False)
+    if lightPipeline and not _rootDurationInRange(graph.rootNode.duration, config):
         return None
 
     traceID = getTraceIdFromFilePath(filename)
@@ -720,6 +724,12 @@ def process(filename: str, config: common.Config) -> Any:
         slack = graph.calculateSlack(cp=criticalPath) if config.computeSlackDrag else None
         metrics.slackDragPerCallPath = aggregate_drag_slack_by_callpath(graph, drag, slack)
         metrics.errorBreakdown = graph.errorBreakdown
+        # A trace is incomplete when sampling dropped a span's parent. Its analysis
+        # subtree is incomplete when a service with an orphan span also appears
+        # under the analysis root: the dropped spans were likely its descendants.
+        orphanServices = graph.get_orphan_services()
+        metrics.isIncomplete = bool(orphanServices)
+        metrics.isSubtreeIncomplete = bool(orphanServices & get_subtree_services(graph.rootNode, graph.processName))
 
     logging.debug("critical path: %s", criticalPath)
     cpp = metrics.CPMetrics.profile if metrics.CPMetrics else {}
@@ -2230,9 +2240,24 @@ def _writeCCTOutputs(cctFile: str, flameGraphStr: str, merged_cpp, max_exemplars
 
 
 def lightProcess(c: common.Config) -> int:
-    """Light mode: process traces and generate only the P0-100 call-path CCT file."""
+    """Light mode: process traces and generate only the P0-100 call-path CCT file.
+
+    With rejectSubtreeIncomplete, traces whose analysis subtree is incomplete
+    (see process()) are left out of the outputs, so that spans lost to sampling
+    don't shorten the aggregated critical paths.
+    """
     metrics = getProcessedMetrics(c)
     validMetrics = [m for m in metrics if m]
+    if getattr(c, "rejectSubtreeIncomplete", False):
+        kept = [m for m in validMetrics if not m.isSubtreeIncomplete]
+        if len(kept) < len(validMetrics):
+            logging.warning(
+                "[lightMode] Rejected %d/%d trace(s) whose target subtree is incomplete "
+                "(orphan spans in downstream services)",
+                len(validMetrics) - len(kept),
+                len(validMetrics),
+            )
+        validMetrics = kept
 
     merged_cpp = MergeCallPathProfilesWithExemplars(validMetrics, c.maxExemplars)
     cpps = [(m.latency, m.CPMetrics) for m in validMetrics]

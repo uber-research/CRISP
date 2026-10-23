@@ -11,6 +11,10 @@ package crisp
 //     like Python. filterProxy is forwarded (LightConfig.FilterProxy); it
 //     only changes the analysis when the proxy/err-prop lists in
 //     span_utils are populated, and they ship empty.
+//   - minDuration/maxDuration and rejectSubtreeIncomplete filter exactly as
+//     in Python's process() and lightProcess(). Python's logging of them
+//     (the "Rejected N/M" warning and the incomplete-trace stats) is not
+//     ported; outputs are unaffected.
 //   - With no valid traces, Python's aggregateCCTs([]) takes the
 //     non-CallPathProfile branch and returns ""; mirrored here.
 //   - Python's getOutputDir() (the Config method) resolves to the --file
@@ -45,6 +49,14 @@ type LightConfig struct {
 	// enable error-propagation nodes. It has no effect unless the
 	// proxy/err-prop lists in span_utils.go are populated.
 	FilterProxy bool
+	// MinDuration and MaxDuration mirror config.minDuration/maxDuration:
+	// skip a trace whose analysis root is shorter or longer than this many
+	// microseconds. Both bounds are inclusive; nil is no bound.
+	MinDuration, MaxDuration *int64
+	// RejectSubtreeIncomplete mirrors config.rejectSubtreeIncomplete: leave
+	// out traces whose analysis subtree is incomplete (a service with an
+	// orphan span also appears under the analysis root).
+	RejectSubtreeIncomplete bool
 	// ErrorBreakdown, when set, also writes error-breakdown.json.
 	ErrorBreakdown *ErrorBreakdownOptions
 	// Context, when non-nil, is checked before each trace file in
@@ -63,6 +75,8 @@ type lightTraceResult struct {
 	cpp            *CallPathProfile
 	slackDrag      *SlackDragByCallpath
 	errorBreakdown TraceErrorBreakdown
+	// subtreeIncomplete mirrors metrics.isSubtreeIncomplete.
+	subtreeIncomplete bool
 }
 
 // TraceIDFromFilePath mirrors process_trace.py getTraceIdFromFilePath:
@@ -73,8 +87,9 @@ func TraceIDFromFilePath(traceFile string) string {
 
 // processTraceFile mirrors process_trace.py process(): build the graph,
 // compute the critical path, accumulate the call-path profile, and compute
-// drag. Returns (nil, nil) when the trace is skipped (no root, or a test
-// trace with ignoreTestTraces set).
+// drag. Returns (nil, nil) when the trace is skipped (no root, a test trace
+// with ignoreTestTraces set, or an analysis root outside the duration
+// bounds).
 func processTraceFile(filename string, c *LightConfig) (*lightTraceResult, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -109,6 +124,10 @@ func processTraceData(data []byte, traceID, filename string, c *LightConfig) (*l
 	if c.IgnoreTestTraces && g.IsTestTrace {
 		return nil, nil
 	}
+	// Duration bounds apply to the analysis root, not the trace root.
+	if d := g.RootNode.Duration; (c.MinDuration != nil && d < *c.MinDuration) || (c.MaxDuration != nil && d > *c.MaxDuration) {
+		return nil, nil
+	}
 
 	cp, err := g.FindCriticalPath(nil)
 	if err != nil {
@@ -124,7 +143,35 @@ func processTraceData(data []byte, traceID, filename string, c *LightConfig) (*l
 		cpp:            cpp,
 		slackDrag:      g.AggregateDragSlackByCallpath(drag),
 		errorBreakdown: g.ErrorBreakdown,
+		// The analysis subtree is incomplete when a service with an orphan
+		// span also appears under the analysis root: the dropped spans were
+		// likely its descendants.
+		subtreeIncomplete: anyServiceInSubtree(g, g.RootNode, g.OrphanServices()),
 	}, nil
+}
+
+// anyServiceInSubtree mirrors the set intersection of process_trace.py's
+// get_subtree_services with the orphan services: whether any node under
+// root, root included, belongs to one of services.
+func anyServiceInSubtree(g *Graph, root *Node, services map[string]bool) bool {
+	if len(services) == 0 {
+		return false
+	}
+	stack := []*Node{root}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if services[g.ProcessName[n.ProcessID]] {
+			return true
+		}
+		stack = append(stack, n.Children...)
+	}
+	return false
+}
+
+// keep mirrors lightProcess's rejectSubtreeIncomplete filter.
+func keep(c *LightConfig, res *lightTraceResult) bool {
+	return res != nil && !(c.RejectSubtreeIncomplete && res.subtreeIncomplete)
 }
 
 // LightProcess mirrors process_trace.py lightProcess: process all traces,
@@ -144,7 +191,7 @@ func LightProcess(c *LightConfig) error {
 		if err != nil {
 			return err
 		}
-		if res != nil {
+		if keep(c, res) {
 			valid = append(valid, res)
 		}
 	}
@@ -164,7 +211,7 @@ func ProcessSingleTraceData(data []byte, traceID string, c *LightConfig) error {
 		return err
 	}
 	var valid []*lightTraceResult
-	if res != nil {
+	if keep(c, res) {
 		valid = append(valid, res)
 	}
 	return writeLightOutputs(c, valid)

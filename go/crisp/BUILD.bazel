@@ -44,6 +44,7 @@ go_test(
         "dot_test.go",
         "error_breakdown_test.go",
         "graph_test.go",
+        "light_cohort_filters_test.go",
         "light_test.go",
         "outputs_test.go",
         "parse_test.go",

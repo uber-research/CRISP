@@ -66,6 +66,8 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
             [--mergeAllRoots | --no-mergeAllRoots] [--rootTrace] [--anonymize]
             [--tags TAGS] [--exclude-from-cp EXCLUDEFROMCP]
             [--maxExemplars MAXEXEMPLARS]
+            [--minDuration MINDURATION] [--maxDuration MAXDURATION]
+            [--rejectSubtreeIncomplete]
             [--errorBreakdown {origins,propToRoot}]
             [--errorBreakdownRoot {trace,analysis}]
             [--deltaMicroSec DELTAMICROSEC]
@@ -109,6 +111,8 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 | `--tags YAML` | YAML list of `{name, value, search_depth}` tag filters to apply before analysis |
 | `--exclude-from-cp FILE` | YAML file listing operations to exclude from the critical path |
 | `--ignoreTestTraces` | Skip traces marked as synthetic test traces |
+| `--minDuration US` / `--maxDuration US` | Light mode: skip traces whose analysis root span (the span matched by `-s`/`-a`, not the trace root) is shorter or longer than this many microseconds. Inclusive bounds; default no bound |
+| `--rejectSubtreeIncomplete` | Light mode: leave out traces whose analysis subtree is incomplete, i.e. a service with an orphan span (its `CHILD_OF` parent is missing from the trace, typically dropped by sampling) also appears under the analysis root. The dropped spans would otherwise shorten its critical paths |
 
 ### Latency projection
 

@@ -276,6 +276,7 @@ class Graph:
         self.proxyNodes = {}  # maps sid to child count, for sanity checks
         self.filterProxy = filterProxy
         self.numProxyRoots = 0  # number of proxy nodes that are roots
+        self.orphanSpanIds: set[str] = set()  # spans whose parent was not captured (sampling loss)
         self.errorBreakdown = None
         self.retimed = False  # set to True once Retimer.retime_node has mutated this Graph
         # Lazily built by calculateSlack() and reused across every root of a multi-root
@@ -682,6 +683,7 @@ class Graph:
                 potentialRoots.append(me)
                 continue
             if parentId not in self.nodeHT:
+                self.orphanSpanIds.add(spanId)
                 potentialRoots.append(me)
                 continue
 
@@ -700,6 +702,14 @@ class Graph:
             if spanId not in self.proxyNodes:
                 parent.addChild(me)
 
+
+    def get_orphan_services(self) -> set[str]:
+        """Return the service names of all orphan spans (parent set but not in the trace).
+
+        A child of a short-wired proxy that has no parent is a root, not an orphan:
+        its own parent, the proxy, is in the trace.
+        """
+        return {self.processName.get(self.nodeHT[spanId].pid, "unknown") for spanId in self.orphanSpanIds}
 
     def propagateErrorsToRoots(self, potentialRoots, errPropNodes):
         for root in potentialRoots:
