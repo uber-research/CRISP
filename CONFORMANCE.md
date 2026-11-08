@@ -51,6 +51,14 @@ Reference behaviors that affect output and are easy to get wrong in a port:
    integers, never through a 64-bit float.
 5. **Root selection**: the span with no in-trace `CHILD_OF` parent; ties broken
    by earliest `startTime`, then `spanID` (see `derive_root_span`).
+6. **`--rootTrace` root candidates** (`Graph`, not `derive_root_span`): the
+   candidates are the spans with no in-trace `CHILD_OF` parent. Drop every
+   candidate with a `FOLLOWS_FROM` reference whose `spanID` is in the trace
+   (a fire-and-forget call, not a separate root); if none remain, use all
+   candidates. Then require exactly one. Only the exact `refType`
+   `FOLLOWS_FROM` counts, references with a missing or empty `spanID` are
+   ignored, a reference to the span itself is in the trace, and for a
+   repeated span ID only the last span's references count.
 
 Grow this list whenever differential testing finds a new
 implementation-sensitive behavior.

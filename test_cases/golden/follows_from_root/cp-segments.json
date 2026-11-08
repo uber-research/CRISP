@@ -1,0 +1,76 @@
+{
+  "spans": [
+    {
+      "endTime": 1000,
+      "exclusive": 200,
+      "operation": "O1",
+      "parentSpanID": null,
+      "segments": [
+        [
+          0,
+          50
+        ],
+        [
+          450,
+          500
+        ],
+        [
+          900,
+          1000
+        ]
+      ],
+      "service": "S1",
+      "spanID": "R",
+      "startTime": 0
+    },
+    {
+      "endTime": 900,
+      "exclusive": 400,
+      "operation": "O4",
+      "parentSpanID": "R",
+      "segments": [
+        [
+          500,
+          900
+        ]
+      ],
+      "service": "S2",
+      "spanID": "D",
+      "startTime": 500
+    },
+    {
+      "endTime": 450,
+      "exclusive": 100,
+      "operation": "O2",
+      "parentSpanID": "R",
+      "segments": [
+        [
+          50,
+          100
+        ],
+        [
+          400,
+          450
+        ]
+      ],
+      "service": "S2",
+      "spanID": "B",
+      "startTime": 50
+    },
+    {
+      "endTime": 400,
+      "exclusive": 300,
+      "operation": "O3",
+      "parentSpanID": "B",
+      "segments": [
+        [
+          100,
+          400
+        ]
+      ],
+      "service": "S3",
+      "spanID": "C",
+      "startTime": 100
+    }
+  ]
+}

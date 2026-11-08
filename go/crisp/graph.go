@@ -103,6 +103,11 @@ type Graph struct {
 	// proxy, is in the trace.
 	OrphanSpanIDs map[string]bool
 
+	// followsFromAttached mirrors graph.py's Graph.followsFromAttached: spans with a
+	// FOLLOWS_FROM reference to a span in this trace. Under rootTrace they
+	// are not root candidates.
+	followsFromAttached map[string]bool
+
 	exclusionSet map[ServiceOp]bool
 	config       AnalysisConfig
 
@@ -203,6 +208,7 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 
 	// pass 3: build parent-child relationships.
 	potentialRoots := g.buildParentChildRelationships()
+	g.followsFromAttached = g.findFollowsFromAttached()
 
 	// pass 4: propagate errors for nodes identified as errorProps.
 	for _, root := range potentialRoots {
@@ -233,14 +239,26 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 	}
 
 	if rootTrace {
-		if len(potentialRoots) != 1 {
+		// A candidate with a FOLLOWS_FROM target in the trace (a
+		// fire-and-forget call) is not a separate root. If none remain, use
+		// all candidates.
+		var candidates []*Node
+		for _, r := range potentialRoots {
+			if !g.followsFromAttached[r.SID] {
+				candidates = append(candidates, r)
+			}
+		}
+		if len(candidates) == 0 {
+			candidates = potentialRoots
+		}
+		if len(candidates) != 1 {
 			// Python: logging.warning("%d roots node in file ...") and return.
 			return g, nil
 		}
-		if !g.checkRootAndWarn(potentialRoots[0], rootTrace) {
+		if !g.checkRootAndWarn(candidates[0], rootTrace) {
 			return g, nil
 		}
-		g.RootNode = potentialRoots[0]
+		g.RootNode = candidates[0]
 	} else {
 		for _, candidate := range potentialRoots {
 			someRoot := g.findARoot(candidate)
@@ -323,6 +341,23 @@ func (g *Graph) buildParentChildRelationships() []*Node {
 		}
 	}
 	return potentialRoots
+}
+
+// findFollowsFromAttached mirrors the followsFromAttached set built after
+// parseNode's pass 3: the spans with at least one FOLLOWS_FROM target in
+// NodeHT. NodeHT holds the last span for a repeated span ID, so its
+// references are the ones that count, as in Python.
+func (g *Graph) findFollowsFromAttached() map[string]bool {
+	attached := map[string]bool{}
+	for _, spanID := range g.nodeOrder {
+		for _, target := range g.NodeHT[spanID].followsFrom {
+			if _, ok := g.NodeHT[target]; ok {
+				attached[spanID] = true
+				break
+			}
+		}
+	}
+	return attached
 }
 
 // propagateErrors mirrors graph.py's post-order propagateErrors: nodes

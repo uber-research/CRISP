@@ -81,6 +81,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   which also works when warnings are stripped.
 
 ### Fixed
+- rootTrace: a span with a FOLLOWS_FROM reference to an in-trace span is no
+  longer counted as a second root, so traces with correctly labeled
+  fire-and-forget calls are analyzed instead of skipped. Python and the Go
+  port; other modes and existing outputs are unchanged.
 - `--errorAnalysis` flame graphs of errors propagated to the root were always
   empty: `process()` passed `{}` to `getMetrics` instead of
   `computePropToRootGraph()`'s result. Heavy `--errorAnalysis` runs now

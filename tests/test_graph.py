@@ -3397,6 +3397,118 @@ class GraphTestCaseDeferred(TestCase):
         self.assertEqual(len(cycles), 0)
 
 
+class TestRootTraceFollowsFrom(TestCase):
+    """Under rootTrace, a span attached to the trace only by FOLLOWS_FROM is not a second root."""
+
+    @staticmethod
+    def span(sid, pid, op, start, duration, childOf=None, followsFrom=()):
+        refs = [{"refType": "CHILD_OF", "spanID": childOf}] if childOf else []
+        refs += [{"refType": "FOLLOWS_FROM", "spanID": t} for t in followsFrom]
+        return {"spanID": sid, "operationName": op, "references": refs,
+                "startTime": start, "duration": duration, "processID": pid}
+
+    @staticmethod
+    def trace(*spans):
+        processes = {p: {"serviceName": "svc" + p[1:]} for p in ("pA", "pB", "pC")}
+        return {"data": [{"spans": list(spans), "processes": processes}]}
+
+    # R (svcA/opA) -> C (svcB/opB); F (svcC/send) FOLLOWS_FROM C and starts after C ends.
+    def base(self):
+        return [
+            self.span("R", "pA", "opA", 0, 1000),
+            self.span("C", "pB", "opB", 100, 300, childOf="R"),
+            self.span("F", "pC", "send", 500, 300, followsFrom=["C"]),
+        ]
+
+    @staticmethod
+    def subtree(node):
+        sids, stack = set(), [node]
+        while stack:
+            n = stack.pop()
+            sids.add(n.sid)
+            stack.extend(n.children)
+        return sids
+
+    def test_follows_from_span_is_not_a_root(self):
+        g = Graph(self.trace(*self.base()), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertEqual(g.rootNode.sid, "R")
+        self.assertEqual(g.followsFromAttached, {"F"})
+        self.assertEqual(self.subtree(g.rootNode), {"R", "C"})
+        self.assertNotIn("F", [n.sid for n in g.findCriticalPath()])
+
+    def test_any_in_trace_target_attaches(self):
+        spans = self.base()
+        spans[2] = self.span("F", "pC", "send", 500, 300, followsFrom=["missing", "C"])
+        g = Graph(self.trace(*spans), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertEqual(g.rootNode.sid, "R")
+
+    def test_orphan_still_skips_trace(self):
+        spans = self.base() + [self.span("O", "pB", "opB", 200, 100, childOf="missing")]
+        g = Graph(self.trace(*spans), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertIsNone(g.rootNode)
+
+    def test_dangling_follows_from_still_skips_trace(self):
+        spans = self.base()
+        spans[2] = self.span("F", "pC", "send", 500, 300, followsFrom=["missing"])
+        g = Graph(self.trace(*spans), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertEqual(g.followsFromAttached, set())
+        self.assertIsNone(g.rootNode)
+
+    def test_non_root_trace_unchanged(self):
+        withF = Graph(self.trace(*self.base()), "svcA", "opA", "t.json", rootTrace=False)
+        withoutF = Graph(self.trace(*self.base()[:2]), "svcA", "opA", "t.json", rootTrace=False)
+        self.assertEqual(withF.rootNode.sid, "R")
+        self.assertEqual([n.sid for n in withF.findCriticalPath()], [n.sid for n in withoutF.findCriticalPath()])
+
+    def test_follows_from_cycle_falls_back_to_all_candidates(self):
+        spans = [
+            self.span("X", "pA", "opA", 0, 100, followsFrom=["Y"]),
+            self.span("Y", "pA", "opA", 0, 100, followsFrom=["X"]),
+        ]
+        g = Graph(self.trace(*spans), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertEqual(g.followsFromAttached, {"X", "Y"})
+        self.assertIsNone(g.rootNode)
+
+    def test_fallback_keeps_root_whose_follows_from_target_is_its_child(self):
+        spans = [
+            self.span("R", "pA", "opA", 0, 1000, followsFrom=["C"]),
+            self.span("C", "pB", "opB", 100, 300, childOf="R"),
+        ]
+        g = Graph(self.trace(*spans), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertEqual(g.rootNode.sid, "R")
+
+    def test_fallback_keeps_root_that_follows_from_itself(self):
+        g = Graph(self.trace(self.span("R", "pA", "opA", 0, 1000, followsFrom=["R"])), "svcA", "opA", "t.json")
+        self.assertEqual(g.rootNode.sid, "R")
+
+    def test_orphan_with_in_trace_follows_from_is_not_a_root(self):
+        spans = self.base() + [self.span("O", "pB", "opB", 200, 100, childOf="missing", followsFrom=["R"])]
+        g = Graph(self.trace(*spans), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertEqual(g.rootNode.sid, "R")
+
+    def test_repeated_span_id_uses_last_span_references(self):
+        plain = self.span("F", "pC", "send", 500, 300)
+        linked = self.span("F", "pC", "send", 500, 300, followsFrom=["C"])
+        g = Graph(self.trace(*self.base()[:2], linked, plain), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertIsNone(g.rootNode)
+        g = Graph(self.trace(*self.base()[:2], plain, linked), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertEqual(g.rootNode.sid, "R")
+
+    def test_follows_from_without_span_id_is_ignored(self):
+        spans = self.base()
+        spans[2]["references"] = [{"refType": "FOLLOWS_FROM"}, {"refType": "FOLLOWS_FROM", "spanID": None}]
+        g = Graph(self.trace(*spans), "svcA", "opA", "t.json", rootTrace=False)
+        self.assertEqual(g.rootNode.sid, "R")
+        g = Graph(self.trace(*spans), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertIsNone(g.rootNode)
+
+    def test_span_with_child_of_and_follows_from_stays_in_tree(self):
+        spans = self.base() + [self.span("M", "pC", "opC", 150, 100, childOf="C", followsFrom=["R"])]
+        g = Graph(self.trace(*spans), "svcA", "opA", "t.json", rootTrace=True)
+        self.assertEqual(g.rootNode.sid, "R")
+        self.assertEqual(self.subtree(g.rootNode), {"R", "C", "M"})
+
+
 class TestCrossRegionDetection(TestCase):
     """Test cases for cross-region call detection functionality"""
 

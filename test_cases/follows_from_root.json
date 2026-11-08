@@ -1,0 +1,82 @@
+{
+  "data": [
+    {
+      "traceID": "FF",
+      "spans": [
+        {
+          "traceID": "FF",
+          "spanID": "R",
+          "operationName": "O1",
+          "references": [],
+          "startTime": 0,
+          "duration": 1000,
+          "processID": "P1",
+          "warnings": null
+        },
+        {
+          "traceID": "FF",
+          "spanID": "B",
+          "operationName": "O2",
+          "references": [{"refType": "CHILD_OF", "traceID": "FF", "spanID": "R"}],
+          "startTime": 50,
+          "duration": 400,
+          "processID": "P2",
+          "warnings": null
+        },
+        {
+          "traceID": "FF",
+          "spanID": "C",
+          "operationName": "O3",
+          "references": [{"refType": "CHILD_OF", "traceID": "FF", "spanID": "B"}],
+          "startTime": 100,
+          "duration": 300,
+          "processID": "P3",
+          "warnings": null
+        },
+        {
+          "traceID": "FF",
+          "spanID": "F",
+          "operationName": "send",
+          "references": [{"refType": "FOLLOWS_FROM", "traceID": "FF", "spanID": "B"}],
+          "startTime": 460,
+          "duration": 300,
+          "processID": "P4",
+          "warnings": null
+        },
+        {
+          "traceID": "FF",
+          "spanID": "G",
+          "operationName": "O5",
+          "references": [{"refType": "CHILD_OF", "traceID": "FF", "spanID": "F"}],
+          "startTime": 500,
+          "duration": 200,
+          "processID": "P5",
+          "warnings": null
+        },
+        {
+          "traceID": "FF",
+          "spanID": "D",
+          "operationName": "O4",
+          "references": [{"refType": "CHILD_OF", "traceID": "FF", "spanID": "R"}],
+          "startTime": 500,
+          "duration": 400,
+          "processID": "P2",
+          "warnings": null
+        }
+      ],
+      "processes": {
+        "P1": {"serviceName": "S1", "tags": []},
+        "P2": {"serviceName": "S2", "tags": []},
+        "P3": {"serviceName": "S3", "tags": []},
+        "P4": {"serviceName": "S4", "tags": []},
+        "P5": {"serviceName": "S5", "tags": []}
+      },
+      "warnings": null
+    }
+  ],
+  "testing": [{"[S1] O1": 200, "[S2] O2": 100, "[S3] O3": 300, "[S2] O4": 400}],
+  "total": 0,
+  "limit": 0,
+  "offset": 0,
+  "errors": null
+}

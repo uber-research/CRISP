@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -117,6 +118,163 @@ func TestNewGraph_RootTraceRequiresSingleRoot(t *testing.T) {
 	}
 	if g.RootNode != nil {
 		t.Errorf("RootNode = %v, want nil (multi-root trace skipped)", g.RootNode.SID)
+	}
+}
+
+func followsFrom(spanID string) jaeger.Reference {
+	return jaeger.Reference{RefType: "FOLLOWS_FROM", SpanID: spanID}
+}
+
+// followsFromTrace mirrors TestRootTraceFollowsFrom.base in
+// tests/test_graph.py: R (svcA/opA) -> C (svcB/opB), and F (svcC/send)
+// FOLLOWS_FROM fRef, starting after C ends. extra spans are appended.
+func followsFromTrace(fRefs []jaeger.Reference, extra ...jaeger.Span) *jaeger.Trace {
+	spans := []jaeger.Span{
+		mkSpan("R", "opA", "pA", 0, 1000, nil),
+		mkSpan("C", "opB", "pB", 100, 300, []jaeger.Reference{childOf("R")}),
+		mkSpan("F", "send", "pC", 500, 300, fRefs),
+	}
+	return mkTrace(
+		map[string]jaeger.Process{"pA": mkProc("svcA"), "pB": mkProc("svcB"), "pC": mkProc("svcC")},
+		append(spans, extra...)...,
+	)
+}
+
+func TestNewGraph_RootTraceFollowsFrom(t *testing.T) {
+	tests := []struct {
+		name     string
+		trace    *jaeger.Trace
+		wantRoot string // "" means the trace is skipped
+	}{
+		{
+			name:     "follows-from span is not a root",
+			trace:    followsFromTrace([]jaeger.Reference{followsFrom("C")}),
+			wantRoot: "R",
+		},
+		{
+			name:     "any in-trace target attaches",
+			trace:    followsFromTrace([]jaeger.Reference{followsFrom("missing"), followsFrom("C")}),
+			wantRoot: "R",
+		},
+		{
+			name: "orphan still skips the trace",
+			trace: followsFromTrace([]jaeger.Reference{followsFrom("C")},
+				mkSpan("O", "opB", "pB", 200, 100, []jaeger.Reference{childOf("missing")})),
+		},
+		{
+			name:  "dangling follows-from still skips the trace",
+			trace: followsFromTrace([]jaeger.Reference{followsFrom("missing")}),
+		},
+		{
+			name: "follows-from cycle falls back to all candidates",
+			trace: mkTrace(
+				map[string]jaeger.Process{"pA": mkProc("svcA")},
+				mkSpan("X", "opA", "pA", 0, 100, []jaeger.Reference{followsFrom("Y")}),
+				mkSpan("Y", "opA", "pA", 0, 100, []jaeger.Reference{followsFrom("X")}),
+			),
+		},
+		{
+			name: "fallback keeps a root whose follows-from target is its child",
+			trace: mkTrace(
+				map[string]jaeger.Process{"pA": mkProc("svcA"), "pB": mkProc("svcB")},
+				mkSpan("R", "opA", "pA", 0, 1000, []jaeger.Reference{followsFrom("C")}),
+				mkSpan("C", "opB", "pB", 100, 300, []jaeger.Reference{childOf("R")}),
+			),
+			wantRoot: "R",
+		},
+		{
+			name: "fallback keeps a root that follows from itself",
+			trace: mkTrace(
+				map[string]jaeger.Process{"pA": mkProc("svcA")},
+				mkSpan("R", "opA", "pA", 0, 1000, []jaeger.Reference{followsFrom("R")}),
+			),
+			wantRoot: "R",
+		},
+		{
+			name: "orphan with an in-trace follows-from is not a root",
+			trace: followsFromTrace([]jaeger.Reference{followsFrom("C")},
+				mkSpan("O", "opB", "pB", 200, 100, []jaeger.Reference{childOf("missing"), followsFrom("R")})),
+			wantRoot: "R",
+		},
+		{
+			name: "repeated span ID uses the last span's references (unlinked last)",
+			trace: followsFromTrace([]jaeger.Reference{followsFrom("C")},
+				mkSpan("F", "send", "pC", 500, 300, nil)),
+		},
+		{
+			name: "repeated span ID uses the last span's references (linked last)",
+			trace: followsFromTrace(nil,
+				mkSpan("F", "send", "pC", 500, 300, []jaeger.Reference{followsFrom("C")})),
+			wantRoot: "R",
+		},
+		{
+			name:  "follows-from without a span ID is ignored",
+			trace: followsFromTrace([]jaeger.Reference{{RefType: "FOLLOWS_FROM"}}),
+		},
+		{
+			name: "span with child-of and follows-from stays in the tree",
+			trace: followsFromTrace([]jaeger.Reference{followsFrom("C")},
+				mkSpan("M", "opC", "pC", 150, 100, []jaeger.Reference{childOf("C"), followsFrom("R")})),
+			wantRoot: "R",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g, err := NewGraph(tt.trace, "svcA", "opA", &GraphOptions{RootTrace: boolPtr(true)})
+			if err != nil {
+				t.Fatalf("NewGraph: %v", err)
+			}
+			got := ""
+			if g.RootNode != nil {
+				got = g.RootNode.SID
+			}
+			if got != tt.wantRoot {
+				t.Fatalf("root = %q, want %q", got, tt.wantRoot)
+			}
+			if g.RootNode == nil {
+				return
+			}
+			cp, err := g.FindCriticalPath(nil)
+			if err != nil {
+				t.Fatalf("FindCriticalPath: %v", err)
+			}
+			for _, n := range cp {
+				if n.SID == "F" {
+					t.Errorf("F is on the critical path")
+				}
+			}
+			for stack := []*Node{g.RootNode}; len(stack) > 0; {
+				n := stack[len(stack)-1]
+				stack = append(stack[:len(stack)-1], n.Children...)
+				if n.SID == "F" {
+					t.Errorf("F is in the root's subtree")
+				}
+			}
+		})
+	}
+}
+
+func TestNewGraph_NonRootTraceIgnoresFollowsFrom(t *testing.T) {
+	withF, err := NewGraph(followsFromTrace([]jaeger.Reference{followsFrom("C")}), "svcA", "opA", &GraphOptions{RootTrace: boolPtr(false)})
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	if withF.RootNode == nil || withF.RootNode.SID != "R" {
+		t.Fatalf("root = %v, want R", withF.RootNode)
+	}
+	if len(withF.followsFromAttached) != 1 || !withF.followsFromAttached["F"] {
+		t.Errorf("followsFromAttached = %v, want {F}", withF.followsFromAttached)
+	}
+	cp, err := withF.FindCriticalPath(nil)
+	if err != nil {
+		t.Fatalf("FindCriticalPath: %v", err)
+	}
+	var got []string
+	for _, n := range cp {
+		got = append(got, n.SID)
+	}
+	if want := []string{"R", "C"}; !slices.Equal(got, want) {
+		t.Errorf("critical path = %v, want %v", got, want)
 	}
 }
 
