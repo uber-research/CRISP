@@ -22,7 +22,7 @@ from crisp.models import (
 )
 from crisp.constants import (
     SPANS, SPAN_ID, REFERENCES, START_TIME, SPAN_KIND, PEER_SERVICE,
-    DURATION, OPERATION_NAME, PROCESS_ID, REF_TYPE, CHILD_OF,
+    DURATION, OPERATION_NAME, PROCESS_ID, REF_TYPE, CHILD_OF, FOLLOWS_FROM,
     TAGS, LOGS, FIELDS, PROCESSES, HOSTNAME, TESTING, OP_TIME_EXCLUSIVE,
     TOTAL_WORK, TIME_SAVED_ON_WORK, TIME_SAVED_ON_CP, ERR_CP_CALLPATH_EXCLUSIVE,
     ERR_CP_ERR_COUNTS, SERVER, CLIENT, PARQUET_PROCESS, PARQUET_SERVICE_NAME,
@@ -277,6 +277,8 @@ class Graph:
         self.filterProxy = filterProxy
         self.numProxyRoots = 0  # number of proxy nodes that are roots
         self.orphanSpanIds: set[str] = set()  # spans whose parent was not captured (sampling loss)
+        # spans with a FOLLOWS_FROM reference to a span in this trace; not root candidates under rootTrace
+        self.followsFromAttached: set[str] = set()
         self.errorBreakdown = None
         self.retimed = False  # set to True once Retimer.retime_node has mutated this Graph
         # Lazily built by calculateSlack() and reused across every root of a multi-root
@@ -321,17 +323,20 @@ class Graph:
             return
 
         if rootTrace:  # the root span must be the service+operation
-            if len(potentialRoots) != 1:
-                logging.warning(f"{len(potentialRoots)} roots node in file {filename}!")
+            # A candidate with a FOLLOWS_FROM target in the trace (a fire-and-forget call) is not a separate root.
+            # If none remain, use all candidates.
+            candidates = [r for r in potentialRoots if r.sid not in self.followsFromAttached] or potentialRoots
+            if len(candidates) != 1:
+                logging.warning(f"{len(candidates)} roots node in file {filename}!")
                 return
-            if not potentialRoots[0] or not self.checkRootAndWarn(
-                potentialRoots[0],
+            if not candidates[0] or not self.checkRootAndWarn(
+                candidates[0],
                 filename,
                 rootTrace,
             ):
                 return
             else:
-                self.rootNode = potentialRoots[0]
+                self.rootNode = candidates[0]
         else:  # randomly choose some one node whose service and op names match
             for candidate in potentialRoots:
                 someRoot = self.findARoot(candidate)
@@ -731,6 +736,7 @@ class Graph:
         numErrors = 0
         isTestTrace = False
         errPropNodes = {}
+        followsFrom = {}  # spanID -> spanIDs it FOLLOWS_FROM; the last span with a repeated ID wins, as in nodeHT
 
         # pass 1: record service names and other KV data first
         for item in jsonData["data"]:
@@ -752,10 +758,13 @@ class Graph:
             for span in item[SPANS]:
                 thisSpan = span[SPAN_ID]
                 parentSpanId = None
+                followsFrom[thisSpan] = []
                 # We only care about CHILD_OF spans reachable from the root.
                 for parent in span[REFERENCES]:
                     if parent[REF_TYPE] == CHILD_OF:
                         parentSpanId = parent[SPAN_ID]
+                    elif parent[REF_TYPE] == FOLLOWS_FROM and parent.get(SPAN_ID):
+                        followsFrom[thisSpan].append(parent[SPAN_ID])
 
                 spanTags = span[TAGS] if (TAGS in span) else {}
                 spanLogs = span[LOGS] if (LOGS in span) else {}
@@ -789,6 +798,9 @@ class Graph:
 
         # pass 3: build parent-child relationships
         self.buildParentChildRelationships(potentialRoots)
+        self.followsFromAttached = {
+            sid for sid, targets in followsFrom.items() if any(t in self.nodeHT for t in targets)
+        }
 
         # pass 4. Propagate errors for nodes identified as errorProps.
         self.propagateErrorsToRoots(potentialRoots, errPropNodes)
@@ -889,6 +901,7 @@ class Graph:
         self.numErrors = numErrors
 
         # Pass 3: Build parent-child relationships
+        # Parquet rows carry only ParentSpanID, not reference types, so followsFromAttached stays empty.
         self.buildParentChildRelationships(potentialRoots)
 
         # Pass 4: Propagate errors

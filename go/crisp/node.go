@@ -24,6 +24,10 @@ type Node struct {
 	RPCProtocol   string
 	RPCStatusCode *int64
 
+	// followsFrom lists the span's FOLLOWS_FROM reference targets, in
+	// reference order. Only root selection under rootTrace reads it.
+	followsFrom []string
+
 	// Parent is the linked parent node, nil for roots. Children mirrors
 	// Python's insertion-ordered dict keyed by child node: order is the
 	// order addChild was called in, which follows span document order (see

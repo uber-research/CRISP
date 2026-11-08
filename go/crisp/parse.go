@@ -8,6 +8,7 @@ import (
 
 const (
 	refTypeChildOf     = "CHILD_OF"
+	refTypeFollowsFrom = "FOLLOWS_FROM"
 	processTagHostname = "hostname"
 	processTagRegion   = "region"
 	processTagZone     = "zone"
@@ -76,10 +77,17 @@ func ParseTrace(t *jaeger.Trace) (*ParsedTrace, error) {
 	for _, item := range t.Data {
 		for _, span := range item.Spans {
 			var parentSpanID *string
+			var followsFrom []string
 			for _, ref := range span.References {
-				if ref.RefType == refTypeChildOf {
+				switch ref.RefType {
+				case refTypeChildOf:
 					id := ref.SpanID
 					parentSpanID = &id // last matching CHILD_OF ref wins, matching Python
+				case refTypeFollowsFrom:
+					// Python skips a missing or null spanID, which decodes as "".
+					if ref.SpanID != "" {
+						followsFrom = append(followsFrom, ref.SpanID)
+					}
 				}
 			}
 
@@ -123,6 +131,7 @@ func ParseTrace(t *jaeger.Trace) (*ParsedTrace, error) {
 				hasError,
 			)
 			node.RPCProtocol, node.RPCStatusCode = rpcProtocol, rpcStatusCode
+			node.followsFrom = followsFrom
 			pt.Nodes = append(pt.Nodes, node)
 		}
 	}
