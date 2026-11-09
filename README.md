@@ -237,10 +237,10 @@ for _, span := range analysis.Spans {
 
 ### Validation
 
-Byte-parity against the Python reference is enforced by a [difftest harness](go/tools/difftest) that compares all six light-mode outputs per trace (`slackDrag.csv` is compared row-sorted; pandas' sort is not stable across tied values):
+Byte-parity against the Python reference is enforced by a [difftest harness](go/tools/difftest) that compares all six light-mode outputs per trace (`slackDrag.csv` is compared row-sorted; pandas' sort is not stable across tied values). These figures were measured on the original (pre-2026-11) versions of the datasets:
 
 - **Zenodo artifact corpus** — 170,993/170,993 traces byte-identical across all three datasets (`bottom-up-trace`, `Service43-Operation159`, `ml-service3`), including skip-for-skip agreement on multi-root/no-root traces and a 119,680-span trace. Fully reproducible: download the artifact and run `difftest -mode corpus -strict`.
-- **The Tale of Errors in Microservices corpus** ([Zenodo part 1](https://zenodo.org/records/13947828) + [part 2](https://zenodo.org/records/13952897)) — 1,388,527/1,388,527 traces byte-identical across both artifact parts (`trace1`, `trace2`). Combined with the artifact corpus above, that's 1,559,520/1,559,520 public traces with zero divergence.
+- **The Tale of Errors in Microservices corpus** ([Zenodo part 1](https://doi.org/10.5281/zenodo.13947827) + [part 2](https://doi.org/10.5281/zenodo.13952896)) — 1,388,527/1,388,527 traces byte-identical across both artifact parts (`trace1`, `trace2`). Combined with the artifact corpus above, that's 1,559,520/1,559,520 public traces with zero divergence.
 
 Performance is trace-size dependent, so we report both ends of the spectrum. On a random 100-trace sample of the public `bottom-up-trace` dataset (median 24 spans, 8 workers): shelling out to the Python CLI averages 380 ms/trace — almost entirely fixed interpreter + pandas startup — while the Go CLI as a subprocess takes 7 ms/trace and in-process library calls 3 ms/trace (48× and 89× wall-clock respectively). At the other end, the corpus' largest trace (119,680 spans) runs the identical algorithm in 17m05s (Python) vs 10m37s (Go), a 1.6× analysis-time speedup where startup cost is negligible. Between these regimes the ratio interpolates: startup elimination dominates small traces, analysis speed dominates large ones. Separately, a synthetic 957k-span trace completes in 13 s at 2.0 GB RSS (Jaeger deployments can see up to ~1M spans per trace).
 
@@ -335,8 +335,27 @@ Unit tests for the HTTP service live in `tests/service/` and `tests/test_server.
 
 ## Dataset
 
-- Artifact from the original CRISP paper: <https://zenodo.org/records/13956078>
-- ~1.4 million production traces from [The Tale of Errors in Microservices](https://doi.org/10.1145/3700436): <https://zenodo.org/records/13947828>
+- Artifact from the original CRISP paper: <https://doi.org/10.5281/zenodo.13956077>
+- ~1.4 million production traces from [The Tale of Errors in Microservices](https://doi.org/10.1145/3700436): part 1 <https://doi.org/10.5281/zenodo.13947827>, part 2 <https://doi.org/10.5281/zenodo.13952896>
+
+These DOIs always resolve to the latest version. **Version 2026-11** of both datasets corrects the data; the
+previous versions should no longer be used. In short:
+
+- Fire-and-forget calls (for example asynchronous message produces) that were recorded as `CHILD_OF` are now
+  `FOLLOWS_FROM`. The children of an authentication-proxy span that hid real RPCs from their callers are now
+  attached to the proxy span's parent (the proxy span is kept). CRISP leaves `FOLLOWS_FROM` spans off the
+  critical path, so critical paths now reflect what callers actually wait for.
+- `Service43-Operation159` and the three Tale of Errors archives share one ID space (`OperationG<n>` /
+  `ServiceG<n>`): the same ID is the same operation or service in all four. `ml-service3` and
+  `bottom-up-trace` keep their own IDs, which are not comparable with each other or with the shared space.
+- Every changed span is marked (`crisp.original_ref_type`, `crisp.original_parent`), and operations and
+  services carry a coarse technical category (`crisp.op_kind`, `crisp.service_role`).
+- Timestamps, durations and span/trace IDs are unchanged. The details and the known issues of the data
+  (clock skew, millisecond timestamps, and more) are in `CHANGES_AND_KNOWN_ISSUES.md`, shipped with both
+  datasets.
+- Because fire-and-forget calls are now `FOLLOWS_FROM`, use a CRISP version that includes the `--rootTrace`
+  fix for `FOLLOWS_FROM`-linked spans (see CHANGELOG) when running with `--rootTrace` on this data; the
+  default mode is unaffected.
 
 Please cite our papers if you use the datasets in your research.
 

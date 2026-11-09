@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- Docs: the dataset links now use concept DOIs, which resolve to the latest version, and the README
+  summarizes version 2026-11 of the CRISP and Tale of Errors datasets (corrected `FOLLOWS_FROM` links,
+  shared IDs for `Service43-Operation159` and the Tale of Errors traces, change markers and categories).
+
 ### Added
 - Light-mode cohort filters, in Python and the Go port with identical outputs:
   `--minDuration`/`--maxDuration` skip traces whose analysis root is outside
