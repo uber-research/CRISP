@@ -60,6 +60,23 @@ Reference behaviors that affect output and are easy to get wrong in a port:
    ignored, a reference to the span itself is in the trace, and for a
    repeated span ID only the last span's references count.
 
+7. **Analysis roots without `--rootTrace`** (light pipeline). The first root
+   is the first span, in depth-first order from each parentless span, that
+   matches the service and operation and is inside
+   `--minDuration`/`--maxDuration`. With `--mergeAllRoots` (the default) every
+   other matching span inside that window that has no in-trace `CHILD_OF`
+   parent is also a root: a trace root or the head of an orphaned fragment.
+   - A matching span that has a parent in the trace is never an extra root,
+     even when sanitization later drops it from under that parent. It counts
+     only when it is on the critical path of the root above it.
+   - Roots are taken in span order. Each root is sanitized and analyzed on its
+     own, exactly as a run pinned to that span would be, and each contributes
+     one profile: the frequency of the root path is the number of roots.
+   - `--rootTrace` and a pinned root span always give a single root.
+   - Per trace there is one error breakdown: the trace-root breakdown as is,
+     or the sum of the per-root analysis-root breakdowns, each computed before
+     its root is sanitized.
+
 Grow this list whenever differential testing finds a new
 implementation-sensitive behavior.
 

@@ -465,6 +465,7 @@ def aggregate_drag_slack_by_callpath(
     graph: Graph,
     drag: Drag,
     slack: Slack | None = None,
+    root=None,
 ) -> dict[str, PerMethodSlackDrag]:
     """Aggregate one graph's per-span drag/slack onto call-path identity.
 
@@ -482,6 +483,9 @@ def aggregate_drag_slack_by_callpath(
             None, every span's slack contribution is 0.0, so callers that
             don't need slack can skip computing it without changing drag's
             aggregation at all.
+        root: when set, only the spans in this node's subtree are aggregated.
+            Used when one trace has several analysis roots, so that spans
+            outside a root are not counted once per root.
 
     Returns:
         Mapping from call path to its aggregated :class:`PerMethodSlackDrag`.
@@ -493,9 +497,18 @@ def aggregate_drag_slack_by_callpath(
             drag.drag_per_span.get(node.sid, 0.0),
             slack.slack_per_span.get(node.sid, 0.0) if slack is not None else 0.0,
         )
-        for node in graph.nodeHT.values()
+        for node in (graph.nodeHT.values() if root is None else _subtree(root))
     )
     return _sum_slack_drag_by_callpath(entries)
+
+
+def _subtree(root):
+    """The nodes under root, root included, in depth-first order."""
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        yield node
+        stack.extend(reversed(list(node.children)))
 
 
 def merge_per_method_slack_drag(

@@ -661,11 +661,60 @@ def _rootDurationInRange(duration: int, config: common.Config) -> bool:
     return (minDuration is None or duration >= minDuration) and (maxDuration is None or duration <= maxDuration)
 
 
+def _lightPipeline(config: common.Config) -> bool:
+    """Whether the light-mode pipeline runs. --conformance alone also runs it (see main())."""
+    return bool(config.lightMode or getattr(config, "conformance", False))
+
+
+def _mergeAllRoots(config: common.Config) -> bool:
+    """Whether a trace may contribute several analysis roots (see Graph.analysisRoots).
+
+    Only the light pipeline merges roots: its outputs sum one profile per root.
+    The other reports are keyed by trace and keep a single root per trace.
+    """
+    return _lightPipeline(config) and bool(getattr(config, "mergeAllRoots", False)) and not config.rootTrace
+
+
+def _mergeTraceErrorBreakdowns(breakdowns: list) -> Optional[dict]:
+    """Sum the per-root analysis-root error breakdowns of one trace.
+
+    The same key keeps the nodes of the first root that has it and adds the counts.
+    """
+    merged: Optional[dict] = None
+    for breakdown in breakdowns:
+        if breakdown is None:
+            continue
+        if merged is None:
+            merged = {}
+        for key, (count, nodes) in breakdown.items():
+            if key in merged:
+                merged[key] = (merged[key][0] + count, merged[key][1])
+            else:
+                merged[key] = (count, nodes)
+    return merged
+
+
 def process(filename: str, config: common.Config) -> Any:
-    """Process one Jaeger JSON trace file and return its Metrics, or None to skip."""
+    """Process one Jaeger JSON trace file and return the Metrics of its first
+    analysis root, or None to skip. See processRoots()."""
+    roots = processRoots(filename, config)
+    return roots[0] if roots else None
+
+
+def processRoots(filename: str, config: common.Config) -> list:
+    """Process one Jaeger JSON trace file and return one Metrics per analysis root.
+
+    A trace has one analysis root unless --mergeAllRoots applies (light
+    pipeline, --rootTrace off): then every parentless span matching the
+    service and operation is a root next to the first match (see
+    Graph.analysisRoots), and each root is analyzed on its own. An empty list
+    means the trace is skipped.
+    """
     with open(filename, "r") as f:
         data = json.load(f)
 
+    # Light-mode duration bounds apply to the analysis root, not the trace root.
+    lightPipeline = _lightPipeline(config)
     graph = Graph(
         data,
         config.serviceName,
@@ -674,32 +723,55 @@ def process(filename: str, config: common.Config) -> Any:
         config.rootTrace,
         filterProxy=config.filterProxy,
         errorBreakdown=_errorBreakdownOptions(config),
+        minRootDuration=getattr(config, "minDuration", None) if lightPipeline else None,
+        maxRootDuration=getattr(config, "maxDuration", None) if lightPipeline else None,
     )
 
     if graph.rootNode is None:
-        return None
+        return []
 
     if config.ignoreTestTraces and graph.isTestTrace:
-        return None
+        return []
 
-    # Light-mode duration bounds apply to the analysis root, not the trace root.
-    # Like the other skips above, an out-of-range trace produces no metrics.
-    # --conformance alone also runs the light-mode pipeline (see main()).
-    lightPipeline = config.lightMode or getattr(config, "conformance", False)
-    if lightPipeline and not _rootDurationInRange(graph.rootNode.duration, config):
-        return None
+    roots = graph.analysisRoots(_mergeAllRoots(config))
+    # Like the other skips above, an out-of-range root produces no metrics.
+    if lightPipeline:
+        roots = [root for root in roots if _rootDurationInRange(root.duration, config)]
 
     traceID = getTraceIdFromFilePath(filename)
-    criticalPath = graph.findCriticalPath()
-    fullErrCP = graph.findErrorsOnCriticalPath()
-    propToRootErrCCT = graph.computePropToRootGraph() if config.errorAnalysis else {}
+    results = []
+    analysisBreakdowns = []
+    for root in roots:
+        # Before the root is sanitized, as the Graph does for its first root.
+        analysisBreakdowns.append(graph.analysisRootErrorBreakdown(root))
+        graph.prepareAnalysisRoot(root)
+        # With several roots, each root's drag report covers its own subtree, so
+        # that the rest of the trace is not counted once per root.
+        results.append(_processRoot(graph, root, traceID, config, dragRoot=root if len(roots) > 1 else None))
+
+    if results:
+        # One error breakdown per trace, carried by its first Metrics: the
+        # trace-root breakdown as is, or the sum of the per-root breakdowns.
+        options = _errorBreakdownOptions(config)
+        if options is not None and options.root == ROOT_TRACE:
+            results[0].errorBreakdown = graph.errorBreakdown
+        else:
+            results[0].errorBreakdown = _mergeTraceErrorBreakdowns(analysisBreakdowns)
+    return results
+
+
+def _processRoot(graph: Graph, root: Any, traceID: str, config: common.Config, dragRoot: Any = None) -> Any:
+    """Analyze one prepared analysis root of a parsed trace and return its Metrics."""
+    criticalPath = graph.findCriticalPath(rootNode=root)
+    fullErrCP = graph.findErrorsOnCriticalPath(rootNode=root)
+    propToRootErrCCT = graph.computePropToRootGraph(rootNode=root) if config.errorAnalysis else {}
     (
         totalWork,
         timeSavedOnWork,
         timeSavedOnCPPessimistic,
         timeSavedOnCPOptimistic,
         timeSavedOnCPAllSeries,
-    ) = graph.computeTimeSaved()
+    ) = graph.computeTimeSaved(rootNode=root)
 
     metrics = graph.getMetrics(
         traceID,
@@ -711,6 +783,7 @@ def process(filename: str, config: common.Config) -> Any:
         timeSavedOnCPOptimistic,
         timeSavedOnCPAllSeries,
         propToRootErrCCT,
+        rootNode=root,
     )
 
     if metrics:
@@ -722,14 +795,14 @@ def process(filename: str, config: common.Config) -> Any:
         # informational slackDrag.csv report (see aggregate_drag_slack_by_callpath).
         drag = graph.calculateDrag(cp=criticalPath)
         slack = graph.calculateSlack(cp=criticalPath) if config.computeSlackDrag else None
-        metrics.slackDragPerCallPath = aggregate_drag_slack_by_callpath(graph, drag, slack)
-        metrics.errorBreakdown = graph.errorBreakdown
+        metrics.slackDragPerCallPath = aggregate_drag_slack_by_callpath(graph, drag, slack, root=dragRoot)
+        metrics.errorBreakdown = None  # set per trace by processRoots()
         # A trace is incomplete when sampling dropped a span's parent. Its analysis
         # subtree is incomplete when a service with an orphan span also appears
         # under the analysis root: the dropped spans were likely its descendants.
         orphanServices = graph.get_orphan_services()
         metrics.isIncomplete = bool(orphanServices)
-        metrics.isSubtreeIncomplete = bool(orphanServices & get_subtree_services(graph.rootNode, graph.processName))
+        metrics.isSubtreeIncomplete = bool(orphanServices & get_subtree_services(root, graph.processName))
 
     logging.debug("critical path: %s", criticalPath)
     cpp = metrics.CPMetrics.profile if metrics.CPMetrics else {}
@@ -748,8 +821,8 @@ def process(filename: str, config: common.Config) -> Any:
     metrics.callChain = callChain
 
     # Inject a synthetic totalTime entry so percentile logic has a denominator.
-    metrics.opTimeExclusive["totalTime"] = graph.rootNode.duration
-    metrics.opTimeInclusive["totalTime"] = graph.rootNode.duration
+    metrics.opTimeExclusive["totalTime"] = root.duration
+    metrics.opTimeInclusive["totalTime"] = root.duration
     return metrics
 
 
@@ -803,9 +876,14 @@ def _memory_aware_workers(num_workers: int, trace_files: list[str]) -> int:
 
 def mapReduce(numWorkers: int, jaegerTraceFiles: list, config: common.Config) -> list:
     """Build graph + critical path for each trace file using a process pool."""
-    process_fn = partial(process, config=config)
     # Cap workers to avoid OOM when individual trace files are very large.
     numWorkers = _memory_aware_workers(numWorkers, jaegerTraceFiles)
+    if _mergeAllRoots(config):
+        # One Metrics per analysis root; a trace may contribute several.
+        with mp.Pool(numWorkers) as p:
+            perTrace = p.map(partial(processRoots, config=config), jaegerTraceFiles)
+        return [m for roots in perTrace for m in roots]
+    process_fn = partial(process, config=config)
     with mp.Pool(numWorkers) as p:
         metrics = p.map(process_fn, jaegerTraceFiles)
     return metrics
@@ -2014,6 +2092,9 @@ def seqProcess(c: common.Config):
     """Single-threaded fallback for mapReduce — useful for debugging."""
     metrics = []
     for traceFile in c.jaegerTraceFiles:
+        if _mergeAllRoots(c):
+            metrics.extend(processRoots(traceFile, c))
+            continue
         traceMetrics = process(traceFile, c)
         if traceMetrics:
             metrics.append(traceMetrics)
