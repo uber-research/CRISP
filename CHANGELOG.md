@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- `slackDrag.csv`: call paths with equal average drag now keep their
+  aggregation order (a stable sort). Before, their order was not defined, and
+  it differed from the Go port, which already wrote them this way. The file is
+  now byte-identical between the two implementations.
 - Light mode without `--rootTrace`: with `--minDuration`/`--maxDuration` the
   analysis root is the first matching span inside the window. Before, the
   first match was chosen regardless and a trace was skipped when that match
