@@ -64,6 +64,12 @@ type LightConfig struct {
 	// (see Graph.AnalysisRoots). The zero value keeps the first match only;
 	// Python and the CLI default to on.
 	MergeAllRoots bool
+	// Fragment mirrors config.fragment: the input traces may be fragments
+	// (see PruneToFragment). The outputs are then the same for a fragment
+	// and for its full trace: the drag report covers only the analysis
+	// subtrees. Not allowed with RootTrace or a trace-root error breakdown
+	// (see CheckFragmentConfig).
+	Fragment bool
 	// ErrorBreakdown, when set, also writes error-breakdown.json.
 	ErrorBreakdown *ErrorBreakdownOptions
 	// Context, when non-nil, is checked before each trace file in
@@ -169,17 +175,18 @@ func processTraceRoots(data []byte, traceID, filename string, c *LightConfig) ([
 		}
 	}
 
+	// With several roots, each root's drag report covers its own subtree, so
+	// that the rest of the trace is not counted once per root. With Fragment
+	// it always does: the rest of the trace may not be in the input.
+	dragSubtree := len(roots) > 1 || c.Fragment
 	var results []*lightTraceResult
 	var analysisBreakdowns []TraceErrorBreakdown
 	for _, root := range roots {
 		// Before the root is sanitized, as NewGraph does for its first root.
 		analysisBreakdowns = append(analysisBreakdowns, g.AnalysisRootErrorBreakdown(root))
 		g.PrepareAnalysisRoot(root)
-		// With several roots, each root's drag report covers its own
-		// subtree, so that the rest of the trace is not counted once per
-		// root.
 		var dragRoot *Node
-		if len(roots) > 1 {
+		if dragSubtree {
 			dragRoot = root
 		}
 		res, err := processRoot(g, root, traceID, dragRoot)
@@ -278,6 +285,9 @@ func keep(c *LightConfig, res *lightTraceResult) bool {
 // write light-flame-graph-P100.{cct,dot,pb}, conformance outputs when
 // enabled, and slackDrag.csv.
 func LightProcess(c *LightConfig) error {
+	if err := CheckFragmentConfig(c); err != nil {
+		return err
+	}
 	ctx := c.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -308,6 +318,9 @@ func LightProcess(c *LightConfig) error {
 // disk read, no subprocess); it spawns no goroutines, so callers control
 // parallelism entirely.
 func ProcessSingleTraceData(data []byte, traceID string, c *LightConfig) error {
+	if err := CheckFragmentConfig(c); err != nil {
+		return err
+	}
 	results, err := processTraceRoots(data, traceID, traceID, c)
 	if err != nil {
 		return err

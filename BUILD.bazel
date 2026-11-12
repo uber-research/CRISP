@@ -24,6 +24,7 @@ py_test(
         "//crisp:configuration",
         "//crisp:constants",
         "//crisp:error_breakdown",
+        "//crisp:fragment",
         "//crisp:graph",
         "//crisp:pkg",
         "//crisp:yaml_merger",

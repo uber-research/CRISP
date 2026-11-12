@@ -21,6 +21,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   shared IDs for `Service43-Operation159` and the Tale of Errors traces, change markers and categories).
 
 ### Added
+- Trace fragments. `pruneToFragment` (`crisp/fragment.py`, also
+  `python -m crisp.fragment`; Go: `PruneToFragment`) reduces a trace to what
+  the light pipeline reads for one service and operation: the matching spans
+  with their subtrees, their ancestors, and the orphan spans. The new
+  `--fragment` flag (Go: `LightConfig.Fragment`, `-fragment`) declares such
+  input: a fragment then gives byte-identical outputs to its full trace. With
+  the flag the drag report covers only the analysis subtrees, and
+  `--rootTrace` and `--errorBreakdownRoot trace` are rejected. See
+  CONFORMANCE.md, "Trace fragments".
 - `--mergeAllRoots` now takes effect in the light pipeline when `--rootTrace`
   is off. A trace with several parentless spans matching the service and
   operation (several roots, or orphaned fragments) contributes one analysis

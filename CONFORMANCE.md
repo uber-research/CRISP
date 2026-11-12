@@ -80,6 +80,45 @@ Reference behaviors that affect output and are easy to get wrong in a port:
 Grow this list whenever differential testing finds a new
 implementation-sensitive behavior.
 
+## Trace fragments
+
+A trace can be far larger than the part the light pipeline analyzes. A
+*fragment* is a trace reduced, for one service and operation, to the spans
+the light pipeline reads. `pruneToFragment` (`crisp/fragment.py`; Go:
+`PruneToFragment`) builds one, and `--fragment` declares that the input may
+be one.
+
+**The contract.** With `--fragment`, every light-pipeline output for the
+fragment is byte-identical to the output for the trace it was made from, for
+the same service, operation and options.
+
+**What a fragment contains.** The parent of a span is its last `CHILD_OF`
+reference; for a repeated span ID the last span counts. The fragment keeps
+these spans, in their original order, and every process:
+
+| Kept | Why |
+|---|---|
+| Every span that matches the service and operation, and its descendants | The analysis subtrees |
+| Every ancestor of a match | A match that has a parent is not an extra analysis root (rule 7); the first match is found in the same depth-first order |
+| Every span whose parent is not in the trace (an orphan) | `--rejectSubtreeIncomplete` reads the services of the orphans |
+| The first span whose operation marks a test trace | `--ignoreTestTraces` |
+
+A kept span keeps a reference when its target is kept, or was never in the
+trace. Of its `CHILD_OF` references only the last one can stay, so that an
+earlier one does not become the parent when the last one is removed.
+
+**What `--fragment` changes.** The drag report (`slackDrag.csv`) covers only
+the subtree of each analysis root, also when the trace has a single root.
+Without `--fragment` a single root reports every span of the input, which a
+fragment does not have. No other output changes.
+
+**What `--fragment` rejects.** `--rootTrace` (a fragment does not have the
+roots of its trace), `--errorBreakdownRoot trace` (it does not have the
+whole trace; use `analysis`), and the heavy pipeline.
+
+`tests/test_fragment.py` and `go/crisp/fragment_test.go` check the contract
+on every fixture, for every service and operation in it.
+
 ## Error breakdown
 
 `--errorBreakdown {origins,propToRoot}` (light mode) also writes

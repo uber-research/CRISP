@@ -171,6 +171,7 @@ class Config:
         minDuration: typing.Optional[int] = None,
         maxDuration: typing.Optional[int] = None,
         rejectSubtreeIncomplete: bool = False,
+        fragment: bool = False,
     ):
         self.operationName = operationName
         self.serviceName = serviceName
@@ -224,6 +225,9 @@ class Config:
         self.minDuration = minDuration
         self.maxDuration = maxDuration
         self.rejectSubtreeIncomplete = rejectSubtreeIncomplete
+        # The input traces may be fragments (see crisp/fragment.py): the light
+        # pipeline then only reports what a fragment and its full trace agree on.
+        self.fragment = fragment
         self.computeSlackDrag = computeSlackDrag
         # Error-breakdown mode ("origins" | "propToRoot") or None to skip it,
         # and its root mode ("trace" | "analysis"); see crisp/error_breakdown.py.
