@@ -4,13 +4,14 @@ package crisp
 // lightProcess, seqProcess, and the per-trace process() pipeline.
 //
 // Parity notes:
-//   - Python's process() constructs Graph with (data, serviceName,
-//     operationName, filename, rootTrace, filterProxy): tags/exclusionSet
-//     are never forwarded in light mode, so the corresponding CLI flags
-//     are accepted by the Go CLI but do not affect the analysis, exactly
+//   - Python's processRoots() constructs Graph with (data, serviceName,
+//     operationName, filename, rootTrace, filterProxy, tags): the
+//     exclusionSet is never forwarded, so the corresponding CLI flag is
+//     accepted by the Go CLI but does not affect the analysis, exactly
 //     like Python. filterProxy is forwarded (LightConfig.FilterProxy); it
 //     only changes the analysis when the proxy/err-prop lists in
-//     span_utils are populated, and they ship empty.
+//     span_utils are populated, and they ship empty. The tag filters are
+//     forwarded (LightConfig.Tags) and only add the per-tag flame graphs.
 //   - minDuration/maxDuration and rejectSubtreeIncomplete filter exactly as
 //     in Python's processRoots() and lightProcess(), and MergeAllRoots
 //     selects analysis roots exactly as Graph.analysisRoots does. Python's logging of them
@@ -28,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/uber-research/CRISP/go/crisp/jaeger"
@@ -70,6 +72,10 @@ type LightConfig struct {
 	// subtrees. Not allowed with RootTrace or a trace-root error breakdown
 	// (see CheckFragmentConfig).
 	Fragment bool
+	// Tags mirrors config.tags: each tag filter also gets its own flame
+	// graph, from the analysis roots it matches (see Graph.MatchingTags).
+	// Its files have the prefix TagOutputPrefix(filter).
+	Tags []TagFilter
 	// ErrorBreakdown, when set, also writes error-breakdown.json.
 	ErrorBreakdown *ErrorBreakdownOptions
 	// Context, when non-nil, is checked before each trace file in
@@ -94,6 +100,8 @@ type lightTraceResult struct {
 	errorBreakdown TraceErrorBreakdown
 	// subtreeIncomplete mirrors metrics.isSubtreeIncomplete.
 	subtreeIncomplete bool
+	// tags mirrors metrics.tags: the tag filters that match under the root.
+	tags []TagFilter
 }
 
 // TraceIDFromFilePath mirrors process_trace.py getTraceIdFromFilePath:
@@ -149,6 +157,7 @@ func processTraceRoots(data []byte, traceID, filename string, c *LightConfig) ([
 		Filename:        filename,
 		RootTrace:       &c.RootTrace,
 		FilterProxy:     c.FilterProxy,
+		Tags:            c.Tags,
 		ErrorBreakdown:  c.ErrorBreakdown,
 		MinRootDuration: c.MinDuration,
 		MaxRootDuration: c.MaxDuration,
@@ -230,6 +239,8 @@ func processRoot(g *Graph, root *Node, traceID string, dragRoot *Node) (*lightTr
 		// span also appears under the analysis root: the dropped spans were
 		// likely its descendants.
 		subtreeIncomplete: anyServiceInSubtree(g, root, g.OrphanServices()),
+		// The Graph only matches the tag filters under its first root.
+		tags: g.MatchingTags(root),
 	}, nil
 }
 
@@ -285,7 +296,7 @@ func keep(c *LightConfig, res *lightTraceResult) bool {
 // write light-flame-graph-P100.{cct,dot,pb}, conformance outputs when
 // enabled, and slackDrag.csv.
 func LightProcess(c *LightConfig) error {
-	if err := CheckFragmentConfig(c); err != nil {
+	if err := checkLightConfig(c); err != nil {
 		return err
 	}
 	ctx := c.Context
@@ -318,7 +329,7 @@ func LightProcess(c *LightConfig) error {
 // disk read, no subprocess); it spawns no goroutines, so callers control
 // parallelism entirely.
 func ProcessSingleTraceData(data []byte, traceID string, c *LightConfig) error {
-	if err := CheckFragmentConfig(c); err != nil {
+	if err := checkLightConfig(c); err != nil {
 		return err
 	}
 	results, err := processTraceRoots(data, traceID, traceID, c)
@@ -334,16 +345,46 @@ func ProcessSingleTraceData(data []byte, traceID string, c *LightConfig) error {
 	return writeLightOutputs(c, valid)
 }
 
-// writeLightOutputs is the LightProcess tail: merge the per-trace results
-// and write all output files.
-func writeLightOutputs(c *LightConfig, valid []*lightTraceResult) error {
-	metrics := make([]*TraceMetrics, 0, len(valid))
-	cpps := make([]*CallPathProfile, 0, len(valid))
-	perTraceSlackDrag := make([]*SlackDragByCallpath, 0, len(valid))
-	for _, res := range valid {
+// checkLightConfig runs the checks lightProcess starts with.
+func checkLightConfig(c *LightConfig) error {
+	if err := CheckFragmentConfig(c); err != nil {
+		return err
+	}
+	return CheckTagFilters(c)
+}
+
+var nonAlphaNumeric = regexp.MustCompile("[^a-zA-Z0-9_]+")
+
+// TagOutputPrefix mirrors process_trace.py tagOutputPrefix: the file name
+// prefix of a tag filter's outputs, e.g. "env_prod_". A value that is not a
+// string is formatted with fmt.Sprint.
+func TagOutputPrefix(tag TagFilter) string {
+	return nonAlphaNumeric.ReplaceAllString(tag.Name+":"+fmt.Sprint(tag.Value), "_") + "_"
+}
+
+// CheckTagFilters mirrors process_trace.py checkTagFilters: an error when
+// two tag filters would write the same per-tag files.
+func CheckTagFilters(c *LightConfig) error {
+	seen := map[string]TagFilter{}
+	for _, tag := range c.Tags {
+		prefix := TagOutputPrefix(tag)
+		if other, ok := seen[prefix]; ok {
+			return fmt.Errorf("--tags: %v and %v have the same output file prefix %q", other, tag, prefix)
+		}
+		seen[prefix] = tag
+	}
+	return nil
+}
+
+// writeLightFlameGraph mirrors process_trace.py _writeLightFlameGraph: write
+// the light flame graph of some results, <prefix>light-flame-graph-P100.{cct,dot,pb}
+// and, with Conformance, <prefix>conformance.{cct,json}.
+func writeLightFlameGraph(c *LightConfig, results []*lightTraceResult, prefix string) error {
+	metrics := make([]*TraceMetrics, 0, len(results))
+	cpps := make([]*CallPathProfile, 0, len(results))
+	for _, res := range results {
 		metrics = append(metrics, &TraceMetrics{TraceID: res.traceID, CPMetrics: res.cpp})
 		cpps = append(cpps, res.cpp)
-		perTraceSlackDrag = append(perTraceSlackDrag, res.slackDrag)
 	}
 
 	merged := MergeCallPathProfilesWithExemplars(metrics, c.MaxExemplars)
@@ -356,15 +397,43 @@ func writeLightOutputs(c *LightConfig, valid []*lightTraceResult) error {
 		}
 	}
 
-	cctFile := filepath.Join(c.OutputDir, LightCCTFile)
+	cctFile := filepath.Join(c.OutputDir, prefix+LightCCTFile)
 	if err := WriteCCTOutputs(cctFile, flameGraphStr, merged, c.MaxExemplars); err != nil {
 		return err
 	}
 
 	if c.Conformance {
-		if _, _, err := WriteConformanceOutputs(c.OutputDir, flameGraphStr, merged, c.MaxExemplars); err != nil {
+		if _, _, err := writeConformanceOutputs(c.OutputDir, prefix, flameGraphStr, merged, c.MaxExemplars); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// writeLightOutputs is the LightProcess tail: merge the per-trace results
+// and write all output files.
+func writeLightOutputs(c *LightConfig, valid []*lightTraceResult) error {
+	if err := writeLightFlameGraph(c, valid, ""); err != nil {
+		return err
+	}
+	for _, tag := range c.Tags {
+		var tagged []*lightTraceResult
+		for _, res := range valid {
+			for _, t := range res.tags {
+				if tagFilterEqual(t, tag) {
+					tagged = append(tagged, res)
+					break
+				}
+			}
+		}
+		if err := writeLightFlameGraph(c, tagged, TagOutputPrefix(tag)); err != nil {
+			return err
+		}
+	}
+
+	perTraceSlackDrag := make([]*SlackDragByCallpath, 0, len(valid))
+	for _, res := range valid {
+		perTraceSlackDrag = append(perTraceSlackDrag, res.slackDrag)
 	}
 
 	if c.ErrorBreakdown != nil {

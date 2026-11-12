@@ -119,6 +119,46 @@ whole trace; use `analysis`), and the heavy pipeline.
 `tests/test_fragment.py` and `go/crisp/fragment_test.go` check the contract
 on every fixture, for every service and operation in it.
 
+## Per-tag outputs
+
+`--tags` takes a list of tag filters, each `{name, value, search_depth}`. In
+the light pipeline every filter gets its own flame graph, next to the one
+over all analysis roots. It is built from the roots the filter matches, in
+the same way: the same cohort filters apply first (`--minDuration`,
+`--maxDuration`, `--rejectSubtreeIncomplete`, `--ignoreTestTraces`), and
+times are averaged over the matched roots.
+
+**When a filter matches a root.** Some span under the root carries a tag
+whose key equals `name` and whose value equals `value`, and the span is at
+most `search_depth` levels deep. The root is level 1, and it is always
+searched.
+
+- The match is per analysis root (rule 7), not per trace: with
+  `--mergeAllRoots`, the roots of one trace can match different filters.
+- It is taken after the root is sanitized, so a span that sanitization
+  dropped does not count.
+- Values compare as in Python: the string `"200"` does not equal the number
+  `200`. The CLIs only accept string values.
+- A root can match several filters, and is then in each of their outputs. A
+  root that matches none is only in the main output.
+
+**Files.** A filter's files are the flame-graph files with a prefix:
+`<prefix>light-flame-graph-P100.{cct,dot,pb}` and, with `--conformance`,
+`<prefix>conformance.{cct,json}`. The prefix is `name`, `:` and `value`
+joined, with every run of characters outside `[A-Za-z0-9_]` replaced by one
+`_`, followed by `_`: `{name: http.status_code, value: "200"}` gives
+`http_status_code_200_`. The files are written also when no root matches
+(the empty outputs). Two filters with the same prefix are an error.
+
+No other output changes: `slackDrag.csv` and `error-breakdown.json` cover
+all analysis roots.
+
+The Python CLI reads the `--tags` value as YAML; the Go CLI reads JSON, which
+is also valid YAML: `--tags '[{"name": "env", "value": "prod", "search_depth": 1}]'`.
+The filters also work on fragments: the search stays inside the analysis
+subtrees. `tests/test_light_tags.py` and `go/crisp/light_tags_test.go` cover
+these rules on the same traces.
+
 ## Error breakdown
 
 `--errorBreakdown {origins,propToRoot}` (light mode) also writes

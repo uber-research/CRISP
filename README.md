@@ -108,7 +108,7 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 
 | Flag | Description |
 |---|---|
-| `--tags YAML` | YAML list of `{name, value, search_depth}` tag filters to apply before analysis |
+| `--tags YAML` | YAML list of `{name, value, search_depth}` tag filters. Each filter also gets its own flame graphs, with the file prefix `<name>_<value>_`, from the traces where a span at most `search_depth` levels below the analysis root (level 1) has that tag. In light mode the match is per analysis root. See [CONFORMANCE.md](CONFORMANCE.md#per-tag-outputs) |
 | `--exclude-from-cp FILE` | YAML file listing operations to exclude from the critical path |
 | `--ignoreTestTraces` | Skip traces marked as synthetic test traces |
 | `--minDuration US` / `--maxDuration US` | Light mode: skip traces whose analysis root span (the span matched by `-s`/`-a`, not the trace root) is shorter or longer than this many microseconds. Inclusive bounds; default no bound |

@@ -266,6 +266,8 @@ class Graph:
         self.serviceName = serviceName
         self.rootTrace = rootTrace
         self.tags = []
+        # The tag filters given to the constructor, for matchingTags().
+        self.tagFilters = list(tags) if tags else []
         self.filename = filename
         self.filesz = os.path.getsize(filename) if os.path.exists(filename) else 0
         self.rootNode = None
@@ -383,8 +385,9 @@ class Graph:
 
         self.prepareAnalysisRoot(self.rootNode)
         # record each tag that is found in the node.
-        self.tags = self.GetMatchingTagsInTree(tags if tags else [], self.rootNode)
-        self.tagHT = {}  # No needed anymore.
+        self.tags = self.GetMatchingTagsInTree(self.tagFilters, self.rootNode)
+        if not self.tagFilters:
+            self.tagHT = {}  # Only matchingTags() still reads it.
 
         if debug_on:
             logging.debug(f"{self.totalShrink} of duation compressed")
@@ -412,6 +415,19 @@ class Graph:
             f"matching tags found: {self.filename}: {node.sid}",
         )
         return matchingTags
+
+    def matchingTags(self, node):
+        """The tag filters of this graph that match under an analysis root.
+
+        A filter matches when a span carries a tag with its name and value and
+        is at most search_depth levels deep, the root being level 1 (the root
+        itself is always searched). Call it after prepareAnalysisRoot(node), as
+        the constructor does for rootNode: spans that sanitization dropped do
+        not count.
+        """
+        if node is self.rootNode:
+            return self.tags
+        return self.GetMatchingTagsInTree(self.tagFilters, node)
 
     def GetMatchingTagsInTree(self, tags, rootNode, curSearchDepth=1):
         matchingTags = self.GetMatchingTagsInNode(tags, rootNode)

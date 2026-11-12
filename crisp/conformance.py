@@ -51,15 +51,19 @@ def write_conformance_outputs(
     flame_graph_str: str,
     merged_cpp: Optional[CallPathProfile],
     max_exemplars: int = 3,
+    prefix: str = "",
 ) -> tuple[str, str]:
-    """Write conformance.cct and conformance.json; return their paths."""
+    """Write conformance.cct and conformance.json; return their paths.
+
+    prefix is put in front of both file names (the per-tag outputs use it).
+    """
     cct_str = canonical_cct(flame_graph_str)
-    cct_path = os.path.join(output_dir, CONFORMANCE_CCT_FILE)
+    cct_path = os.path.join(output_dir, prefix + CONFORMANCE_CCT_FILE)
     with open(cct_path, "w", encoding="utf-8") as f:
         f.write(cct_str)
 
     response = build_conformance_response(cct_str, merged_cpp, max_exemplars)
-    json_path = os.path.join(output_dir, CONFORMANCE_JSON_FILE)
+    json_path = os.path.join(output_dir, prefix + CONFORMANCE_JSON_FILE)
     with open(json_path, "w", encoding="utf-8") as f:
         f.write(canonical_response_json(response))
     return cct_path, json_path

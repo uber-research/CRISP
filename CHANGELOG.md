@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- `--tags` had no effect: the filters never reached the graph, so the
+  per-tag flame graphs of the heavy pipeline were always empty. They are now
+  matched.
+
 ### Changed
 - `slackDrag.csv`: call paths with equal average drag now keep their
   aggregation order (a stable sort). Before, their order was not defined, and
@@ -21,6 +26,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   shared IDs for `Service43-Operation159` and the Tale of Errors traces, change markers and categories).
 
 ### Added
+- Per-tag flame graphs in the light pipeline. With `--tags`, each
+  `{name, value, search_depth}` filter also gets
+  `<name>_<value>_light-flame-graph-P100.{cct,dot,pb}` (and the conformance
+  files), built from the analysis roots it matches. The match is per analysis
+  root: `Graph.matchingTags()` (Go: `Graph.MatchingTags`). The Go port gains
+  `LightConfig.Tags`, `ParseTagFilters`, `TagOutputPrefix` and a working
+  `-tags` flag (JSON). See CONFORMANCE.md, "Per-tag outputs".
 - Trace fragments. `pruneToFragment` (`crisp/fragment.py`, also
   `python -m crisp.fragment`; Go: `PruneToFragment`) reduces a trace to what
   the light pipeline reads for one service and operation: the matching spans
