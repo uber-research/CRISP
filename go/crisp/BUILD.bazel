@@ -46,6 +46,7 @@ go_test(
         "graph_test.go",
         "light_cohort_filters_test.go",
         "light_test.go",
+        "merge_all_roots_test.go",
         "outputs_test.go",
         "parse_test.go",
         "profile_test.go",

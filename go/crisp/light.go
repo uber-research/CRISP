@@ -12,7 +12,8 @@ package crisp
 //     only changes the analysis when the proxy/err-prop lists in
 //     span_utils are populated, and they ship empty.
 //   - minDuration/maxDuration and rejectSubtreeIncomplete filter exactly as
-//     in Python's process() and lightProcess(). Python's logging of them
+//     in Python's processRoots() and lightProcess(), and MergeAllRoots
+//     selects analysis roots exactly as Graph.analysisRoots does. Python's logging of them
 //     (the "Rejected N/M" warning and the incomplete-trace stats) is not
 //     ported; outputs are unaffected.
 //   - With no valid traces, Python's aggregateCCTs([]) takes the
@@ -57,6 +58,12 @@ type LightConfig struct {
 	// out traces whose analysis subtree is incomplete (a service with an
 	// orphan span also appears under the analysis root).
 	RejectSubtreeIncomplete bool
+	// MergeAllRoots mirrors config.mergeAllRoots: without RootTrace, every
+	// parentless span that matches the service and operation is an analysis
+	// root next to the first match, and each root contributes one profile
+	// (see Graph.AnalysisRoots). The zero value keeps the first match only;
+	// Python and the CLI default to on.
+	MergeAllRoots bool
 	// ErrorBreakdown, when set, also writes error-breakdown.json.
 	ErrorBreakdown *ErrorBreakdownOptions
 	// Context, when non-nil, is checked before each trace file in
@@ -69,9 +76,13 @@ type LightConfig struct {
 	OutputDir string
 }
 
-// lightTraceResult carries one trace's contribution to the light outputs.
+// lightTraceResult carries the contribution of one analysis root of a trace
+// to the light outputs (Python's Metrics). A trace has one error breakdown,
+// carried by the result of its first root.
 type lightTraceResult struct {
-	traceID        string
+	traceID string
+	// rootSpanID mirrors metrics.rootSpanID: the analysis root of this result.
+	rootSpanID     string
 	cpp            *CallPathProfile
 	slackDrag      *SlackDragByCallpath
 	errorBreakdown TraceErrorBreakdown
@@ -85,32 +96,56 @@ func TraceIDFromFilePath(traceFile string) string {
 	return strings.Split(filepath.Base(traceFile), ".")[0]
 }
 
-// processTraceFile mirrors process_trace.py process(): build the graph,
-// compute the critical path, accumulate the call-path profile, and compute
-// drag. Returns (nil, nil) when the trace is skipped (no root, a test trace
-// with ignoreTestTraces set, or an analysis root outside the duration
-// bounds).
-func processTraceFile(filename string, c *LightConfig) (*lightTraceResult, error) {
+// processTraceFile mirrors process_trace.py processRoots(): build the
+// graph and analyze each analysis root. See processTraceRoots.
+func processTraceFile(filename string, c *LightConfig) ([]*lightTraceResult, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	return processTraceData(data, TraceIDFromFilePath(filename), filename, c)
+	return processTraceRoots(data, TraceIDFromFilePath(filename), filename, c)
 }
 
-// processTraceData is processTraceFile with the trace bytes already in
-// memory; traceID and filename are used exactly as Python uses
-// getTraceIdFromFilePath(filename) and the filename (exemplars, messages).
+// processTraceData mirrors process_trace.py process(): the result of the
+// trace's first analysis root, or nil when the trace is skipped.
 func processTraceData(data []byte, traceID, filename string, c *LightConfig) (*lightTraceResult, error) {
+	results, err := processTraceRoots(data, traceID, filename, c)
+	if err != nil || len(results) == 0 {
+		return nil, err
+	}
+	return results[0], nil
+}
+
+// mergeAllRoots mirrors process_trace.py _mergeAllRoots: whether a trace may
+// contribute several analysis roots.
+func mergeAllRoots(c *LightConfig) bool {
+	return c.MergeAllRoots && !c.RootTrace
+}
+
+// processTraceRoots mirrors process_trace.py processRoots() with the trace
+// bytes already in memory: one result per analysis root. traceID and
+// filename are used exactly as Python uses getTraceIdFromFilePath(filename)
+// and the filename (exemplars, messages).
+//
+// A trace has one analysis root unless MergeAllRoots applies (RootTrace
+// off): then every parentless span matching the service and operation is a
+// root next to the first match (see Graph.AnalysisRoots), and each root is
+// analyzed on its own. An empty result means the trace is skipped (no root,
+// a test trace with ignoreTestTraces set, or no analysis root inside the
+// duration bounds).
+func processTraceRoots(data []byte, traceID, filename string, c *LightConfig) ([]*lightTraceResult, error) {
 	trace, err := jaeger.Decode(data)
 	if err != nil {
 		return nil, err
 	}
+	// Duration bounds apply to the analysis root, not the trace root.
 	g, err := NewGraph(trace, c.ServiceName, c.OperationName, &GraphOptions{
-		Filename:       filename,
-		RootTrace:      &c.RootTrace,
-		FilterProxy:    c.FilterProxy,
-		ErrorBreakdown: c.ErrorBreakdown,
+		Filename:        filename,
+		RootTrace:       &c.RootTrace,
+		FilterProxy:     c.FilterProxy,
+		ErrorBreakdown:  c.ErrorBreakdown,
+		MinRootDuration: c.MinDuration,
+		MaxRootDuration: c.MaxDuration,
 	})
 	if err != nil {
 		// Python swallows parseNode failures (warning + rootNode None ->
@@ -124,30 +159,95 @@ func processTraceData(data []byte, traceID, filename string, c *LightConfig) (*l
 	if c.IgnoreTestTraces && g.IsTestTrace {
 		return nil, nil
 	}
-	// Duration bounds apply to the analysis root, not the trace root.
-	if d := g.RootNode.Duration; (c.MinDuration != nil && d < *c.MinDuration) || (c.MaxDuration != nil && d > *c.MaxDuration) {
-		return nil, nil
+
+	// An out-of-range root produces no result. Only a RootTrace root can
+	// still be out of range here.
+	var roots []*Node
+	for _, root := range g.AnalysisRoots(mergeAllRoots(c)) {
+		if g.rootDurationInRange(root) {
+			roots = append(roots, root)
+		}
 	}
 
-	cp, err := g.FindCriticalPath(nil)
+	var results []*lightTraceResult
+	var analysisBreakdowns []TraceErrorBreakdown
+	for _, root := range roots {
+		// Before the root is sanitized, as NewGraph does for its first root.
+		analysisBreakdowns = append(analysisBreakdowns, g.AnalysisRootErrorBreakdown(root))
+		g.PrepareAnalysisRoot(root)
+		// With several roots, each root's drag report covers its own
+		// subtree, so that the rest of the trace is not counted once per
+		// root.
+		var dragRoot *Node
+		if len(roots) > 1 {
+			dragRoot = root
+		}
+		res, err := processRoot(g, root, traceID, dragRoot)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, res)
+	}
+
+	if len(results) > 0 {
+		// One error breakdown per trace, carried by its first result: the
+		// trace-root breakdown as is, or the sum of the per-root breakdowns.
+		if c.ErrorBreakdown != nil && c.ErrorBreakdown.Root == ErrorBreakdownTraceRoot {
+			results[0].errorBreakdown = g.ErrorBreakdown
+		} else {
+			results[0].errorBreakdown = mergeTraceErrorBreakdowns(analysisBreakdowns)
+		}
+	}
+	return results, nil
+}
+
+// processRoot mirrors process_trace.py _processRoot(): compute the critical
+// path of one prepared analysis root, accumulate the call-path profile, and
+// compute drag.
+func processRoot(g *Graph, root *Node, traceID string, dragRoot *Node) (*lightTraceResult, error) {
+	cp, err := g.FindCriticalPath(root)
 	if err != nil {
 		return nil, err
 	}
-	cpp, _ := g.AccumeCPMetrics(cp, traceID, nil)
+	cpp, _ := g.AccumeCPMetrics(cp, traceID, root)
 	// Drag is always computed in Python's process(); slack stays behind
 	// --computeSlackDrag, which this port does not support (slack columns
 	// are 0.0).
 	drag := g.CalculateDrag(cp, false)
 	return &lightTraceResult{
-		traceID:        traceID,
-		cpp:            cpp,
-		slackDrag:      g.AggregateDragSlackByCallpath(drag),
-		errorBreakdown: g.ErrorBreakdown,
+		traceID:    traceID,
+		rootSpanID: root.SID,
+		cpp:        cpp,
+		slackDrag:  g.AggregateDragSlackByCallpath(drag, dragRoot),
 		// The analysis subtree is incomplete when a service with an orphan
 		// span also appears under the analysis root: the dropped spans were
 		// likely its descendants.
-		subtreeIncomplete: anyServiceInSubtree(g, g.RootNode, g.OrphanServices()),
+		subtreeIncomplete: anyServiceInSubtree(g, root, g.OrphanServices()),
 	}, nil
+}
+
+// mergeTraceErrorBreakdowns mirrors process_trace.py
+// _mergeTraceErrorBreakdowns: sum the per-root analysis-root error
+// breakdowns of one trace. The same key keeps the nodes of the first root
+// that has it and adds the counts. Nil when no root has a breakdown.
+func mergeTraceErrorBreakdowns(breakdowns []TraceErrorBreakdown) TraceErrorBreakdown {
+	var merged TraceErrorBreakdown
+	for _, breakdown := range breakdowns {
+		if breakdown == nil {
+			continue
+		}
+		if merged == nil {
+			merged = TraceErrorBreakdown{}
+		}
+		for key, path := range breakdown {
+			if have, ok := merged[key]; ok {
+				merged[key] = &TraceErrorPath{Count: have.Count + path.Count, Nodes: have.Nodes}
+			} else {
+				merged[key] = &TraceErrorPath{Count: path.Count, Nodes: path.Nodes}
+			}
+		}
+	}
+	return merged
 }
 
 // anyServiceInSubtree mirrors the set intersection of process_trace.py's
@@ -187,12 +287,14 @@ func LightProcess(c *LightConfig) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		res, err := processTraceFile(traceFile, c)
+		results, err := processTraceFile(traceFile, c)
 		if err != nil {
 			return err
 		}
-		if keep(c, res) {
-			valid = append(valid, res)
+		for _, res := range results {
+			if keep(c, res) {
+				valid = append(valid, res)
+			}
 		}
 	}
 	return writeLightOutputs(c, valid)
@@ -206,13 +308,15 @@ func LightProcess(c *LightConfig) error {
 // disk read, no subprocess); it spawns no goroutines, so callers control
 // parallelism entirely.
 func ProcessSingleTraceData(data []byte, traceID string, c *LightConfig) error {
-	res, err := processTraceData(data, traceID, traceID, c)
+	results, err := processTraceRoots(data, traceID, traceID, c)
 	if err != nil {
 		return err
 	}
 	var valid []*lightTraceResult
-	if keep(c, res) {
-		valid = append(valid, res)
+	for _, res := range results {
+		if keep(c, res) {
+			valid = append(valid, res)
+		}
 	}
 	return writeLightOutputs(c, valid)
 }
