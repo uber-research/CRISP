@@ -78,6 +78,16 @@ py_library(
 )
 
 py_library(
+    name = "fragment",
+    srcs = ["fragment.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":constants",
+        "//crisp/utils:utils",
+    ],
+)
+
+py_library(
     name = "error_breakdown",
     srcs = ["error_breakdown.py"],
     visibility = ["//visibility:public"],

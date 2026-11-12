@@ -38,6 +38,7 @@ func main() {
 		ignoreTestTraces, computeSlackDrag bool
 		filterProxy                        bool
 		rejectSubtreeIncomplete            bool
+		fragment                           bool
 		mergeAllRoots                      bool
 		minDuration, maxDuration           *int64
 		maxExemplars, parallelism          int
@@ -66,6 +67,7 @@ func main() {
 	flag.Func("minDuration", "In light mode, skip traces whose analysis root span is shorter than this many microseconds (inclusive bound; default: no bound).", durationBound(&minDuration))
 	flag.Func("maxDuration", "In light mode, skip traces whose analysis root span is longer than this many microseconds (inclusive bound; default: no bound).", durationBound(&maxDuration))
 	flag.BoolVar(&rejectSubtreeIncomplete, "rejectSubtreeIncomplete", false, "In light mode, leave out traces whose analysis subtree is incomplete: a service with an orphan span (its CHILD_OF parent is not in the trace) also appears under the analysis root.")
+	flag.BoolVar(&fragment, "fragment", false, "In light mode, the input traces may be fragments: traces reduced to the subtrees of the spans matching -s/-a (see crisp.PruneToFragment). The outputs are then the same for a fragment and for its full trace: the drag report covers only the analysis subtrees. Not allowed with --rootTrace or --errorBreakdownRoot trace, which need the whole trace.")
 	flag.BoolVar(&mergeAllRoots, "mergeAllRoots", true, "In light mode without --rootTrace, analyze every parentless span that matches the service and operation, not only the first match (default true; --mergeAllRoots=false or --no-mergeAllRoots keeps the first match only).")
 	flag.BoolFunc("no-mergeAllRoots", "Keep the first matching span only (mirrors the Python flag).", func(string) error {
 		mergeAllRoots = false
@@ -151,8 +153,13 @@ func main() {
 		ErrorBreakdown:          errorBreakdownOpts,
 		RejectSubtreeIncomplete: rejectSubtreeIncomplete,
 		MergeAllRoots:           mergeAllRoots,
+		Fragment:                fragment,
 		TraceFiles:              traceFiles,
 		OutputDir:               outDir,
+	}
+	if err := crisp.CheckFragmentConfig(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "crisp:", err)
+		os.Exit(2)
 	}
 	if err := crisp.LightProcess(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "crisp:", err)

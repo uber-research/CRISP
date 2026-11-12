@@ -67,7 +67,7 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
             [--tags TAGS] [--exclude-from-cp EXCLUDEFROMCP]
             [--maxExemplars MAXEXEMPLARS]
             [--minDuration MINDURATION] [--maxDuration MAXDURATION]
-            [--rejectSubtreeIncomplete]
+            [--rejectSubtreeIncomplete] [--fragment]
             [--errorBreakdown {origins,propToRoot}]
             [--errorBreakdownRoot {trace,analysis}]
             [--deltaMicroSec DELTAMICROSEC]
@@ -112,6 +112,7 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 | `--exclude-from-cp FILE` | YAML file listing operations to exclude from the critical path |
 | `--ignoreTestTraces` | Skip traces marked as synthetic test traces |
 | `--minDuration US` / `--maxDuration US` | Light mode: skip traces whose analysis root span (the span matched by `-s`/`-a`, not the trace root) is shorter or longer than this many microseconds. Inclusive bounds; default no bound |
+| `--fragment` | Light mode: the input traces may be fragments, i.e. traces reduced to the subtrees of the spans matching `-s`/`-a` (`python -m crisp.fragment --file trace.json -s SERVICE -a OPERATION -o fragment.json`). A fragment then gives the same outputs as its full trace; the drag report covers only the analysis subtrees. Not allowed with `--rootTrace` or `--errorBreakdownRoot trace`. See [CONFORMANCE.md](CONFORMANCE.md#trace-fragments) |
 | `--rejectSubtreeIncomplete` | Light mode: leave out traces whose analysis subtree is incomplete, i.e. a service with an orphan span (its `CHILD_OF` parent is missing from the trace, typically dropped by sampling) also appears under the analysis root. The dropped spans would otherwise shorten its critical paths |
 
 ### Latency projection

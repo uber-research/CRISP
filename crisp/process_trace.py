@@ -385,6 +385,20 @@ def initArgs():
     )
 
     argParser.add_argument(
+        "--fragment",
+        dest="fragment",
+        action="store_true",
+        default=False,
+        required=False,
+        help=(
+            "In light mode, the input traces may be fragments: traces reduced to the subtrees of "
+            "the spans matching -s/-a (see crisp/fragment.py). The outputs are then the same for a "
+            "fragment and for its full trace: the drag report covers only the analysis subtrees. "
+            "Not allowed with --rootTrace or --errorBreakdownRoot trace, which need the whole trace."
+        ),
+    )
+
+    argParser.add_argument(
         "--rejectSubtreeIncomplete",
         dest="rejectSubtreeIncomplete",
         action="store_true",
@@ -524,7 +538,12 @@ def initArgs():
         minDuration=args.minDuration,
         maxDuration=args.maxDuration,
         rejectSubtreeIncomplete=args.rejectSubtreeIncomplete,
+        fragment=args.fragment,
     )
+    try:
+        checkFragmentConfig(c)
+    except ValueError as e:
+        argParser.error(str(e))
     c.jaegerTraceFiles = jaegerTraceFiles
     c.outputDir = args.outputDir if args.outputDir else tracesDir
     return c
@@ -675,6 +694,27 @@ def _mergeAllRoots(config: common.Config) -> bool:
     return _lightPipeline(config) and bool(getattr(config, "mergeAllRoots", False)) and not config.rootTrace
 
 
+def checkFragmentConfig(config: common.Config) -> None:
+    """Raise ValueError when --fragment is combined with an option that needs the whole trace.
+
+    A fragment (see crisp/fragment.py) only has the subtrees of the matching
+    spans, their ancestors and the orphan spans. The light pipeline without
+    --rootTrace reads nothing else, except for the trace-root error breakdown.
+    """
+    if not getattr(config, "fragment", False):
+        return
+    if not _lightPipeline(config):
+        raise ValueError("--fragment needs --lightMode (or --conformance)")
+    if config.rootTrace:
+        raise ValueError("--fragment cannot be used with --rootTrace: a fragment does not have the roots of its trace")
+    options = _errorBreakdownOptions(config)
+    if options is not None and options.root == ROOT_TRACE:
+        raise ValueError(
+            "--fragment cannot be used with --errorBreakdownRoot trace: a fragment does not have "
+            "the whole trace (use --errorBreakdownRoot analysis)"
+        )
+
+
 def _mergeTraceErrorBreakdowns(breakdowns: list) -> Optional[dict]:
     """Sum the per-root analysis-root error breakdowns of one trace.
 
@@ -739,15 +779,17 @@ def processRoots(filename: str, config: common.Config) -> list:
         roots = [root for root in roots if _rootDurationInRange(root.duration, config)]
 
     traceID = getTraceIdFromFilePath(filename)
+    # With several roots, each root's drag report covers its own subtree, so
+    # that the rest of the trace is not counted once per root. With --fragment
+    # it always does: the rest of the trace may not be in the input.
+    dragSubtree = len(roots) > 1 or getattr(config, "fragment", False)
     results = []
     analysisBreakdowns = []
     for root in roots:
         # Before the root is sanitized, as the Graph does for its first root.
         analysisBreakdowns.append(graph.analysisRootErrorBreakdown(root))
         graph.prepareAnalysisRoot(root)
-        # With several roots, each root's drag report covers its own subtree, so
-        # that the rest of the trace is not counted once per root.
-        results.append(_processRoot(graph, root, traceID, config, dragRoot=root if len(roots) > 1 else None))
+        results.append(_processRoot(graph, root, traceID, config, dragRoot=root if dragSubtree else None))
 
     if results:
         # One error breakdown per trace, carried by its first Metrics: the
@@ -2327,6 +2369,7 @@ def lightProcess(c: common.Config) -> int:
     (see process()) are left out of the outputs, so that spans lost to sampling
     don't shorten the aggregated critical paths.
     """
+    checkFragmentConfig(c)
     metrics = getProcessedMetrics(c)
     validMetrics = [m for m in metrics if m]
     if getattr(c, "rejectSubtreeIncomplete", False):
