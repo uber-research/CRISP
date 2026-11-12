@@ -166,6 +166,7 @@ func main() {
 				RootTrace:     *rootTrace,
 				Conformance:   true,
 				MaxExemplars:  3,
+				MergeAllRoots: true, // the CLI default, as in modes A and B
 				OutputDir:     t.outDir,
 			}
 			return crisp.ProcessSingleTraceData(t.data, t.traceID, cfg)

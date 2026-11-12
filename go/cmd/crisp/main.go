@@ -38,6 +38,7 @@ func main() {
 		ignoreTestTraces, computeSlackDrag bool
 		filterProxy                        bool
 		rejectSubtreeIncomplete            bool
+		mergeAllRoots                      bool
 		minDuration, maxDuration           *int64
 		maxExemplars, parallelism          int
 		tags, excludeFromCP                string
@@ -65,6 +66,11 @@ func main() {
 	flag.Func("minDuration", "In light mode, skip traces whose analysis root span is shorter than this many microseconds (inclusive bound; default: no bound).", durationBound(&minDuration))
 	flag.Func("maxDuration", "In light mode, skip traces whose analysis root span is longer than this many microseconds (inclusive bound; default: no bound).", durationBound(&maxDuration))
 	flag.BoolVar(&rejectSubtreeIncomplete, "rejectSubtreeIncomplete", false, "In light mode, leave out traces whose analysis subtree is incomplete: a service with an orphan span (its CHILD_OF parent is not in the trace) also appears under the analysis root.")
+	flag.BoolVar(&mergeAllRoots, "mergeAllRoots", true, "In light mode without --rootTrace, analyze every parentless span that matches the service and operation, not only the first match (default true; --mergeAllRoots=false or --no-mergeAllRoots keeps the first match only).")
+	flag.BoolFunc("no-mergeAllRoots", "Keep the first matching span only (mirrors the Python flag).", func(string) error {
+		mergeAllRoots = false
+		return nil
+	})
 	flag.BoolVar(&computeSlackDrag, "computeSlackDrag", false, "Not supported by the Go port (slack computation is not ported).")
 	flag.IntVar(&parallelism, "parallelism", 1, "accepted for compatibility; analysis runs sequentially (outputs are identical)")
 	flag.StringVar(&tags, "tags", "", "accepted for compatibility; unused in light mode (mirrors Python)")
@@ -144,6 +150,7 @@ func main() {
 		MaxDuration:             maxDuration,
 		ErrorBreakdown:          errorBreakdownOpts,
 		RejectSubtreeIncomplete: rejectSubtreeIncomplete,
+		MergeAllRoots:           mergeAllRoots,
 		TraceFiles:              traceFiles,
 		OutputDir:               outDir,
 	}

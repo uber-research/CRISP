@@ -216,11 +216,27 @@ func (s *SlackDragByCallpath) deriveAverages() {
 // callpath: group every node in the graph by call path and sum drag/slack.
 // Slack is always 0 (calculate_slack is not ported; see file docstring).
 // Iteration follows nodeHT insertion order (Python dict order).
-func (g *Graph) AggregateDragSlackByCallpath(drag *Drag) *SlackDragByCallpath {
+//
+// When root is non-nil only the spans in its subtree are aggregated, in
+// depth-first order. It is used when one trace has several analysis roots,
+// so that spans outside a root are not counted once per root.
+func (g *Graph) AggregateDragSlackByCallpath(drag *Drag, root *Node) *SlackDragByCallpath {
 	result := newSlackDragByCallpath()
-	for _, sid := range g.nodeOrder {
-		node := g.NodeHT[sid]
-		result.sumEntry(g.getCallPath(node), 1, drag.PerSpan[node.SID], 0.0)
+	if root == nil {
+		for _, sid := range g.nodeOrder {
+			node := g.NodeHT[sid]
+			result.sumEntry(g.getCallPath(node), 1, drag.PerSpan[node.SID], 0.0)
+		}
+	} else {
+		stack := []*Node{root}
+		for len(stack) > 0 {
+			node := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			result.sumEntry(g.getCallPath(node), 1, drag.PerSpan[node.SID], 0.0)
+			for i := len(node.Children) - 1; i >= 0; i-- {
+				stack = append(stack, node.Children[i])
+			}
+		}
 	}
 	result.deriveAverages()
 	return result

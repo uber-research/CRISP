@@ -56,6 +56,12 @@ type GraphOptions struct {
 	// ID leaves RootNode nil. An ErrorBreakdownTraceRoot breakdown still
 	// covers the whole trace; ErrorBreakdownAnalysisRoot uses this span.
 	RootSpanID string
+	// MinRootDuration and MaxRootDuration mirror minRootDuration and
+	// maxRootDuration (microseconds, inclusive, nil for no bound). They
+	// restrict which matching span RootTrace=false may choose: the root is
+	// the first match inside the window, and AnalysisRoots only returns roots
+	// inside it.
+	MinRootDuration, MaxRootDuration *int64
 }
 
 // Graph mirrors the construction-time state of crisp.graph.Graph: a Jaeger
@@ -102,6 +108,23 @@ type Graph struct {
 	// that has no parent is a root, not an orphan: its own parent, the
 	// proxy, is in the trace.
 	OrphanSpanIDs map[string]bool
+
+	// parentlessSpanIDs mirrors parentlessSpanIds: spans that had no parent
+	// when the trace was parsed (trace roots and heads of orphaned
+	// fragments). Fixed before any root is sanitized.
+	parentlessSpanIDs map[string]bool
+	// preparedRootIDs mirrors preparedRootIds: analysis roots already
+	// sanitized.
+	preparedRootIDs map[string]bool
+	// rootTrace and rootSpanIDGiven record how the root was pinned; either
+	// one gives a single analysis root.
+	rootTrace       bool
+	rootSpanIDGiven bool
+	minRootDuration *int64
+	maxRootDuration *int64
+	// errorBreakdownOptions mirrors errorBreakdownOptions, for
+	// AnalysisRootErrorBreakdown.
+	errorBreakdownOptions *ErrorBreakdownOptions
 
 	// followsFromAttached mirrors graph.py's Graph.followsFromAttached: spans with a
 	// FOLLOWS_FROM reference to a span in this trace. Under rootTrace they
@@ -162,6 +185,13 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 		ProxyNodes:    map[string]int{},
 		FilterProxy:   o.FilterProxy,
 		config:        config,
+
+		preparedRootIDs:       map[string]bool{},
+		rootTrace:             rootTrace,
+		rootSpanIDGiven:       o.RootSpanID != "",
+		minRootDuration:       o.MinRootDuration,
+		maxRootDuration:       o.MaxRootDuration,
+		errorBreakdownOptions: o.ErrorBreakdown,
 	}
 	if len(o.ExclusionSet) > 0 {
 		g.exclusionSet = make(map[ServiceOp]bool, len(o.ExclusionSet))
@@ -209,6 +239,10 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 	// pass 3: build parent-child relationships.
 	potentialRoots := g.buildParentChildRelationships()
 	g.followsFromAttached = g.findFollowsFromAttached()
+	g.parentlessSpanIDs = make(map[string]bool, len(potentialRoots))
+	for _, r := range potentialRoots {
+		g.parentlessSpanIDs[r.SID] = true
+	}
 
 	// pass 4: propagate errors for nodes identified as errorProps.
 	for _, root := range potentialRoots {
@@ -287,8 +321,7 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 		g.ErrorBreakdown = g.computeTraceBreakdown(g.RootNode, false, o.ErrorBreakdown.Mode)
 	}
 
-	g.sanitizeOverflowingChildren(g.RootNode)
-	g.removeExcludedOps(g.RootNode)
+	g.PrepareAnalysisRoot(g.RootNode)
 	g.MatchedTags = g.getMatchingTagsInTree(o.Tags, g.RootNode, 1)
 	g.TagHT = nil // no longer needed, as in Python
 	return g, nil
@@ -393,10 +426,87 @@ func (g *Graph) OrphanServices() map[string]bool {
 	return services
 }
 
-// findARoot mirrors graph.py's DFS for the first node matching the required
-// service and operation name.
+// PrepareAnalysisRoot mirrors graph.py's prepareAnalysisRoot: sanitize the
+// subtree of an analysis root, once (trim or drop overflowing children and
+// remove excluded operations). Every analysis root gets the same preparation
+// as the first one.
+func (g *Graph) PrepareAnalysisRoot(node *Node) {
+	if g.preparedRootIDs[node.SID] {
+		return
+	}
+	g.preparedRootIDs[node.SID] = true
+	g.sanitizeOverflowingChildren(node)
+	g.removeExcludedOps(node)
+}
+
+// matchesServiceOp mirrors graph.py's matchesServiceOp. A process ID missing
+// from the process table gives an empty service name, like Python's
+// processName.get().
+func (g *Graph) matchesServiceOp(node *Node) bool {
+	return g.ProcessName[node.ProcessID] == g.ServiceName && node.OpName == g.OperationName
+}
+
+// rootDurationInRange mirrors graph.py's rootDurationInRange.
+func (g *Graph) rootDurationInRange(node *Node) bool {
+	if g.minRootDuration != nil && node.Duration < *g.minRootDuration {
+		return false
+	}
+	if g.maxRootDuration != nil && node.Duration > *g.maxRootDuration {
+		return false
+	}
+	return true
+}
+
+// AnalysisRoots mirrors graph.py's analysisRoots: the analysis roots of this
+// trace, in span order (CONFORMANCE.md, determinism rule 7).
+//
+// Without mergeAllRoots, or when the root was pinned by RootTrace or
+// RootSpanID, that is RootNode alone. With mergeAllRoots under
+// RootTrace=false it is RootNode (the first match) plus every other span that
+// matches ServiceName/OperationName, is inside the root duration window, and
+// had no parent when the trace was parsed: a trace root or the head of an
+// orphaned fragment.
+//
+// A match that has a parent in the trace is never an extra root. That
+// includes a match that sanitization dropped from under its parent. It counts
+// only when it is on the critical path of the root above it.
+func (g *Graph) AnalysisRoots(mergeAllRoots bool) []*Node {
+	if g.RootNode == nil {
+		return nil
+	}
+	if !mergeAllRoots || g.rootTrace || g.rootSpanIDGiven {
+		return []*Node{g.RootNode}
+	}
+	var roots []*Node
+	for _, sid := range g.nodeOrder {
+		node := g.NodeHT[sid]
+		if node == g.RootNode || (g.parentlessSpanIDs[sid] && g.matchesServiceOp(node) && g.rootDurationInRange(node)) {
+			roots = append(roots, node)
+		}
+	}
+	return roots
+}
+
+// AnalysisRootErrorBreakdown mirrors graph.py's analysisRootErrorBreakdown:
+// the analysis-root error breakdown of one root, or nil when that breakdown
+// was not requested. Call it before PrepareAnalysisRoot(node), as NewGraph
+// does for RootNode.
+func (g *Graph) AnalysisRootErrorBreakdown(node *Node) TraceErrorBreakdown {
+	options := g.errorBreakdownOptions
+	if options == nil || options.Root != ErrorBreakdownAnalysisRoot {
+		return nil
+	}
+	if node == g.RootNode {
+		return g.ErrorBreakdown
+	}
+	return g.computeTraceBreakdown(node, false, options.Mode)
+}
+
+// findARoot mirrors graph.py's DFS for the first node that matches the
+// required service and operation name and is inside the optional root
+// duration window.
 func (g *Graph) findARoot(node *Node) *Node {
-	if g.ProcessName[node.ProcessID] == g.ServiceName && node.OpName == g.OperationName {
+	if g.ProcessName[node.ProcessID] == g.ServiceName && node.OpName == g.OperationName && g.rootDurationInRange(node) {
 		return node
 	}
 	for _, c := range node.Children {

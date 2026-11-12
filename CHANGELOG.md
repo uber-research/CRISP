@@ -25,6 +25,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   is never an extra root. `--no-mergeAllRoots` keeps the first match only.
   New: `Graph.analysisRoots()`, `Graph.prepareAnalysisRoot()`,
   `process_trace.processRoots()`. See CONFORMANCE.md, determinism rule 7.
+  The Go port has the same behavior with identical outputs:
+  `LightConfig.MergeAllRoots`, `Graph.AnalysisRoots()`,
+  `Graph.PrepareAnalysisRoot()`, `GraphOptions.MinRootDuration` and
+  `MaxRootDuration`, and the CLI flag `--mergeAllRoots` (default on;
+  `--no-mergeAllRoots` or `--mergeAllRoots=false` turns it off). As a library
+  option `LightConfig.MergeAllRoots` defaults to off, so set it to get the
+  CLI behavior. `Graph.AggregateDragSlackByCallpath` takes an optional root.
 - Light-mode cohort filters, in Python and the Go port with identical outputs:
   `--minDuration`/`--maxDuration` skip traces whose analysis root is outside
   the given duration in microseconds (inclusive), and

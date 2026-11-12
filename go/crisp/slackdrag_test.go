@@ -186,7 +186,7 @@ func TestAggregateAndMergeSlackDrag(t *testing.T) {
 		t.Fatal(err)
 	}
 	drag := g.CalculateDrag(cp, false)
-	agg := g.AggregateDragSlackByCallpath(drag)
+	agg := g.AggregateDragSlackByCallpath(drag, nil)
 
 	// Three nodes, three distinct call paths; insertion order follows
 	// document order (R, A, B spans).
