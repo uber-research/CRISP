@@ -8,11 +8,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- Light mode without `--rootTrace`: with `--minDuration`/`--maxDuration` the
+  analysis root is the first matching span inside the window. Before, the
+  first match was chosen regardless and a trace was skipped when that match
+  was outside the window, even if a later match was inside.
 - Docs: the dataset links now use concept DOIs, which resolve to the latest version, and the README
   summarizes version 2026-11 of the CRISP and Tale of Errors datasets (corrected `FOLLOWS_FROM` links,
   shared IDs for `Service43-Operation159` and the Tale of Errors traces, change markers and categories).
 
 ### Added
+- `--mergeAllRoots` now takes effect in the light pipeline when `--rootTrace`
+  is off. A trace with several parentless spans matching the service and
+  operation (several roots, or orphaned fragments) contributes one analysis
+  root per such span, next to the first match; each root is sanitized and
+  analyzed on its own and the profiles are merged. A match that has a parent
+  is never an extra root. `--no-mergeAllRoots` keeps the first match only.
+  New: `Graph.analysisRoots()`, `Graph.prepareAnalysisRoot()`,
+  `process_trace.processRoots()`. See CONFORMANCE.md, determinism rule 7.
 - Light-mode cohort filters, in Python and the Go port with identical outputs:
   `--minDuration`/`--maxDuration` skip traces whose analysis root is outside
   the given duration in microseconds (inclusive), and

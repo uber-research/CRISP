@@ -99,7 +99,7 @@ crisp-trace [-h] -a OPERATIONNAME -s SERVICENAME [-i INPUTDIR] [--file FILE]
 | `--topN` | 20 | Max services shown in the summary |
 | `--numHMTrace` | 200 | Max traces shown in the heatmap |
 | `--numOperation` | 20 | Max operations shown in the heatmap |
-| `--mergeAllRoots` / `--no-mergeAllRoots` | on | Merge metrics from every matching root span vs. only the first |
+| `--mergeAllRoots` / `--no-mergeAllRoots` | on | Light mode without `--rootTrace`: analyze every parentless span that matches the service and operation, vs. only the first match. A match that has a parent is never an extra root |
 | `--rootTrace` | off | Require the service/operation to be the root span of the trace. Spans with a FOLLOWS_FROM reference to a span in the trace (fire-and-forget calls) are not counted as extra roots. Note: production traces are rarely single-rooted (orphan spans from sampling/truncation), and such traces are skipped — for endpoint analysis on production data, leave this off |
 | `--anonymize` | off | Anonymize service and operation names in output |
 | `--maxExemplars` | 3 | Max exemplar (trace/span) pairs kept per call path in `.pb` output |

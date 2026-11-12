@@ -244,6 +244,8 @@ class Graph:
         useParquet=False,
         errorBreakdown=None,
         rootSpanId=None,
+        minRootDuration=None,
+        maxRootDuration=None,
     ) -> None:
         """errorBreakdown is an optional error_breakdown.ErrorBreakdownOptions;
         when set, self.errorBreakdown holds this trace's error paths (see
@@ -254,9 +256,15 @@ class Graph:
         same service and operation cannot be chosen instead. It implies
         rootTrace=False; an unknown span ID leaves rootNode as None. A
         trace-root error breakdown still covers the whole trace; an
-        analysis-root breakdown uses this span."""
+        analysis-root breakdown uses this span.
+
+        minRootDuration/maxRootDuration (microseconds, inclusive, None for no
+        bound) restrict which matching span rootTrace=False may choose: the
+        root is the first match inside the window, and analysisRoots() only
+        returns roots inside it."""
         self.operationName = operationName
         self.serviceName = serviceName
+        self.rootTrace = rootTrace
         self.tags = []
         self.filename = filename
         self.filesz = os.path.getsize(filename) if os.path.exists(filename) else 0
@@ -277,6 +285,15 @@ class Graph:
         self.filterProxy = filterProxy
         self.numProxyRoots = 0  # number of proxy nodes that are roots
         self.orphanSpanIds: set[str] = set()  # spans whose parent was not captured (sampling loss)
+        # Spans that had no parent when the trace was parsed: trace roots and heads of orphaned
+        # fragments. Fixed before any root is sanitized, because sanitization clears the parent
+        # of the children it drops, and those are not roots.
+        self.parentlessSpanIds: set[str] = set()
+        self.preparedRootIds: set[str] = set()  # analysis roots already sanitized
+        self.minRootDuration = minRootDuration
+        self.maxRootDuration = maxRootDuration
+        self.rootSpanIdGiven = bool(rootSpanId)
+        self.errorBreakdownOptions = errorBreakdown
         # spans with a FOLLOWS_FROM reference to a span in this trace; not root candidates under rootTrace
         self.followsFromAttached: set[str] = set()
         self.errorBreakdown = None
@@ -303,6 +320,8 @@ class Graph:
             logging.warning(f"self.parseNode failed in file {filename}!")
             logging.warning(f"Exception: {e}")
             return
+
+        self.parentlessSpanIds = {r.sid for r in potentialRoots}
 
         # Before root selection and sanitization, which detach or drop spans.
         if errorBreakdown is not None and errorBreakdown.root == ROOT_TRACE:
@@ -362,9 +381,7 @@ class Graph:
         if errorBreakdown is not None and errorBreakdown.root == ROOT_ANALYSIS:
             self.errorBreakdown = compute_trace_breakdown(self, self.rootNode, errorBreakdown.mode)
 
-        self.sanitizeOverflowingChildren(self.rootNode)
-        # Remove operation in exclusionDict from the graph
-        self.removeExcludedOps(self.rootNode, self.exclusionSet)
+        self.prepareAnalysisRoot(self.rootNode)
         # record each tag that is found in the node.
         self.tags = self.GetMatchingTagsInTree(tags if tags else [], self.rootNode)
         self.tagHT = {}  # No needed anymore.
@@ -410,11 +427,70 @@ class Graph:
                 remainingTags = GetRemainingTags(moreMatches, remainingTags, newDepth)
         return matchingTags
 
+    def prepareAnalysisRoot(self, node):
+        """Sanitize the subtree of an analysis root, once: trim or drop
+        overflowing children and remove excluded operations. Every analysis
+        root gets the same preparation as the first one."""
+        if node.sid in self.preparedRootIds:
+            return
+        self.preparedRootIds.add(node.sid)
+        self.sanitizeOverflowingChildren(node)
+        # Remove operation in exclusionDict from the graph
+        self.removeExcludedOps(node, self.exclusionSet)
+
+    def matchesServiceOp(self, node):
+        return self.processName.get(node.pid) == self.serviceName and node.opName == self.operationName
+
+    def rootDurationInRange(self, node):
+        if self.minRootDuration is not None and node.duration < self.minRootDuration:
+            return False
+        if self.maxRootDuration is not None and node.duration > self.maxRootDuration:
+            return False
+        return True
+
+    def analysisRoots(self, mergeAllRoots):
+        """The analysis roots of this trace, in span order.
+
+        Without mergeAllRoots, or when the root was pinned by rootTrace or
+        rootSpanId, that is rootNode alone. With mergeAllRoots under
+        rootTrace=False it is rootNode (the first match) plus every other span
+        that matches serviceName/operationName, is inside the root duration
+        window, and had no parent when the trace was parsed: a trace root or
+        the head of an orphaned fragment.
+
+        A match that has a parent in the trace is never an extra root. That
+        includes a match that sanitization dropped from under its parent. It
+        counts only when it is on the critical path of the root above it.
+        """
+        if self.rootNode is None:
+            return []
+        if not mergeAllRoots or self.rootTrace or self.rootSpanIdGiven:
+            return [self.rootNode]
+        return [
+            node
+            for node in self.nodeHT.values()
+            if node is self.rootNode
+            or (node.sid in self.parentlessSpanIds and self.matchesServiceOp(node) and self.rootDurationInRange(node))
+        ]
+
+    def analysisRootErrorBreakdown(self, node):
+        """The analysis-root error breakdown of one root, or None when that
+        breakdown was not requested. Call it before prepareAnalysisRoot(node),
+        as the constructor does for rootNode."""
+        options = self.errorBreakdownOptions
+        if options is None or options.root != ROOT_ANALYSIS:
+            return None
+        if node is self.rootNode:
+            return self.errorBreakdown
+        return compute_trace_breakdown(self, node, options.mode)
+
     def findARoot(self, node):
-        # a DFS for finding the first node that matches the required service and operation name.
+        # a DFS for finding the first node that matches the required service and operation name
+        # and is inside the optional root duration window.
         if (
             self.processName[node.pid] == self.serviceName
             and node.opName == self.operationName
+            and self.rootDurationInRange(node)
         ):
             return node
         for c in node.children:
