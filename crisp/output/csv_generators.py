@@ -264,7 +264,9 @@ def genSlackDragCSVFile(perMethodSlackDrag, c, filename=None):
         for agg in perMethodSlackDrag.values()
     ]
     df = pd.DataFrame(rows, columns=columns)
-    df = df.sort_values(by="avgDrag", ascending=False).reset_index(drop=True)
+    # A stable sort: call paths with equal average drag keep their aggregation
+    # order, so the file is deterministic and matches the Go port byte for byte.
+    df = df.sort_values(by="avgDrag", ascending=False, kind="stable").reset_index(drop=True)
     df.to_csv(slackDragCSVFile, index=False)
 
     return slackDragCSVFile

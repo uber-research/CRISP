@@ -317,6 +317,25 @@ class TestGenSlackDragCSVFile(unittest.TestCase):
         self.assertEqual(df.iloc[1]["spanCount"], 2)
         self.assertEqual(df.iloc[1]["avgSlack"], 5.0)
 
+    def test_genSlackDragCSVFile_ties_keep_aggregation_order(self):
+        """Call paths with equal average drag stay in the order they were aggregated."""
+        names = [f"[S1] OR->[S2] O{i}" for i in range(200)]
+        perMethodSlackDrag = {
+            name: PerMethodSlackDrag(
+                call_path=name,
+                span_count=1,
+                total_drag=7.0 if i == 150 else 0.0,
+                avg_drag=7.0 if i == 150 else 0.0,
+                total_slack=0.0,
+                avg_slack=0.0,
+            )
+            for i, name in enumerate(names)
+        }
+
+        df = pd.read_csv(genSlackDragCSVFile(perMethodSlackDrag, self.mock_config))
+
+        self.assertEqual(df["callPath"].tolist(), [names[150]] + names[:150] + names[151:])
+
     def test_genSlackDragCSVFile_empty(self):
         self.assertIsNone(genSlackDragCSVFile({}, self.mock_config))
         self.assertIsNone(genSlackDragCSVFile(None, self.mock_config))
