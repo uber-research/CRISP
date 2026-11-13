@@ -9,9 +9,11 @@
 //   - -o/--outputDir is accepted for compatibility but, exactly like
 //     Python's light mode, never read: outputs go to the --file parent
 //     directory or inputDir (Config.getOutputDir).
-//   - --tags and --exclude-from-cp are accepted for compatibility but do
-//     not affect light mode (Python's process() never forwards them to the
-//     Graph constructor).
+//   - --tags takes the list of tag filters as JSON, a subset of the YAML
+//     the Python CLI reads (see crisp.ParseTagFilters).
+//   - --exclude-from-cp is accepted for compatibility but does not affect
+//     light mode (Python's process() never forwards it to the Graph
+//     constructor).
 //   - Python's glob.glob returns traces in directory (os.scandir) order;
 //     globJSONDirOrder mirrors that with Readdirnames so multi-file runs
 //     produce byte-identical .cct/.pb on the same filesystem. Conformance
@@ -75,12 +77,11 @@ func main() {
 	})
 	flag.BoolVar(&computeSlackDrag, "computeSlackDrag", false, "Not supported by the Go port (slack computation is not ported).")
 	flag.IntVar(&parallelism, "parallelism", 1, "accepted for compatibility; analysis runs sequentially (outputs are identical)")
-	flag.StringVar(&tags, "tags", "", "accepted for compatibility; unused in light mode (mirrors Python)")
+	flag.StringVar(&tags, "tags", "", `A JSON list of tag filters, e.g. '[{"name": "env", "value": "prod", "search_depth": 1}]'. Each filter also gets its own flame graph, from the analysis roots where a span at most search_depth levels deep has the tag; its files have the prefix <name>_<value>_.`)
 	flag.StringVar(&excludeFromCP, "exclude-from-cp", "", "accepted for compatibility; unused in light mode (mirrors Python)")
 	flag.StringVar(&cpuProfile, "cpuprofile", "", "write CPU profile to file (dev only)")
 	_ = outputDir
 	_ = parallelism
-	_ = tags
 	_ = excludeFromCP
 
 	flag.Parse()
@@ -140,6 +141,16 @@ func main() {
 		}
 	}
 
+	var tagFilters []crisp.TagFilter
+	if tags != "" {
+		var err error
+		tagFilters, err = crisp.ParseTagFilters(tags)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "crisp:", err)
+			os.Exit(2)
+		}
+	}
+
 	cfg := &crisp.LightConfig{
 		ServiceName:             serviceName,
 		OperationName:           operationName,
@@ -154,12 +165,15 @@ func main() {
 		RejectSubtreeIncomplete: rejectSubtreeIncomplete,
 		MergeAllRoots:           mergeAllRoots,
 		Fragment:                fragment,
+		Tags:                    tagFilters,
 		TraceFiles:              traceFiles,
 		OutputDir:               outDir,
 	}
-	if err := crisp.CheckFragmentConfig(cfg); err != nil {
-		fmt.Fprintln(os.Stderr, "crisp:", err)
-		os.Exit(2)
+	for _, check := range []func(*crisp.LightConfig) error{crisp.CheckFragmentConfig, crisp.CheckTagFilters} {
+		if err := check(cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "crisp:", err)
+			os.Exit(2)
+		}
 	}
 	if err := crisp.LightProcess(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "crisp:", err)

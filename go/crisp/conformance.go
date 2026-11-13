@@ -257,8 +257,15 @@ func CanonicalResponseJSON(response map[string]any) (string, error) {
 // write conformance.cct and conformance.json into outputDir and return
 // their paths.
 func WriteConformanceOutputs(outputDir, flameGraphStr string, mergedCpp *CallPathProfile, maxExemplars int) (string, string, error) {
+	return writeConformanceOutputs(outputDir, "", flameGraphStr, mergedCpp, maxExemplars)
+}
+
+// writeConformanceOutputs is WriteConformanceOutputs with prefix in front of
+// both file names (the per-tag outputs use it), as the prefix argument of
+// write_conformance_outputs.
+func writeConformanceOutputs(outputDir, prefix, flameGraphStr string, mergedCpp *CallPathProfile, maxExemplars int) (string, string, error) {
 	cctStr := CanonicalCCT(flameGraphStr)
-	cctPath := filepath.Join(outputDir, ConformanceCCTFile)
+	cctPath := filepath.Join(outputDir, prefix+ConformanceCCTFile)
 	if err := os.WriteFile(cctPath, []byte(cctStr), 0o644); err != nil {
 		return "", "", err
 	}
@@ -268,7 +275,7 @@ func WriteConformanceOutputs(outputDir, flameGraphStr string, mergedCpp *CallPat
 	if err != nil {
 		return "", "", err
 	}
-	jsonPath := filepath.Join(outputDir, ConformanceJSONFile)
+	jsonPath := filepath.Join(outputDir, prefix+ConformanceJSONFile)
 	if err := os.WriteFile(jsonPath, []byte(jsonStr), 0o644); err != nil {
 		return "", "", err
 	}

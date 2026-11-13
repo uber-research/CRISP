@@ -542,6 +542,7 @@ def initArgs():
     )
     try:
         checkFragmentConfig(c)
+        checkTagFilters(c)
     except ValueError as e:
         argParser.error(str(e))
     c.jaegerTraceFiles = jaegerTraceFiles
@@ -762,6 +763,7 @@ def processRoots(filename: str, config: common.Config) -> list:
         filename,
         config.rootTrace,
         filterProxy=config.filterProxy,
+        tags=getattr(config, "tags", None),
         errorBreakdown=_errorBreakdownOptions(config),
         minRootDuration=getattr(config, "minDuration", None) if lightPipeline else None,
         maxRootDuration=getattr(config, "maxDuration", None) if lightPipeline else None,
@@ -829,6 +831,9 @@ def _processRoot(graph: Graph, root: Any, traceID: str, config: common.Config, d
     )
 
     if metrics:
+        # The tag filters that match under this root; the Graph only matches
+        # them under its first root.
+        metrics.tags = graph.matchingTags(root)
         # Drag is always computed: it's cheap (sub-millisecond, even on huge traces)
         # and never affects any latency-savings projection, so there's no reason to
         # gate it. Slack stays opt-in behind --computeSlackDrag since it requires
@@ -2057,7 +2062,7 @@ def TagToStr(tag):
     """Convert a tag dict to a filesystem-safe prefix string, e.g. 'env:prod'."""
     name = tag[common.TAG_NAME]
     value = tag[common.TAG_VALUE]
-    return common.replaceNonAlphaNumericWithUnderscore(name + ":" + value)
+    return common.replaceNonAlphaNumericWithUnderscore(name + ":" + str(value))
 
 
 def ProduceFlameGraphsForEachFilter(metrics, c: common.Config):
@@ -2362,14 +2367,50 @@ def _writeCCTOutputs(cctFile: str, flameGraphStr: str, merged_cpp, max_exemplars
     logging.info("Wrote protobuf file: %s", pb_file)
 
 
+def tagOutputPrefix(tag) -> str:
+    """The file name prefix of a tag filter's outputs, e.g. 'env_prod_'."""
+    return TagToStr(tag) + "_"
+
+
+def checkTagFilters(config: common.Config) -> None:
+    """Raise ValueError when two tag filters would write the same per-tag files."""
+    seen: dict = {}
+    for tag in getattr(config, "tags", None) or []:
+        prefix = tagOutputPrefix(tag)
+        if prefix in seen:
+            raise ValueError(
+                "--tags: %s and %s have the same output file prefix %r" % (seen[prefix], tag, prefix)
+            )
+        seen[prefix] = tag
+
+
+def _writeLightFlameGraph(c: common.Config, metrics: list, prefix: str = "") -> None:
+    """Write the light flame graph of some Metrics: <prefix>light-flame-graph-P100.{cct,dot,pb}
+    and, with --conformance, <prefix>conformance.{cct,json}."""
+    merged_cpp = MergeCallPathProfilesWithExemplars(metrics, c.maxExemplars)
+    cpps = [(m.latency, m.CPMetrics) for m in metrics]
+    flameGraphStr = flamegraph.aggregateCCTs(cpps, [], average=True)
+    outputDir = c.getOutputDir()
+    cctFile = os.path.join(outputDir, prefix + "light-flame-graph-P100.cct")
+    _writeCCTOutputs(cctFile, flameGraphStr, merged_cpp, c.maxExemplars)
+
+    if c.conformance:
+        write_conformance_outputs(outputDir, flameGraphStr, merged_cpp, c.maxExemplars, prefix=prefix)
+
+
 def lightProcess(c: common.Config) -> int:
     """Light mode: process traces and generate only the P0-100 call-path CCT file.
 
     With rejectSubtreeIncomplete, traces whose analysis subtree is incomplete
     (see process()) are left out of the outputs, so that spans lost to sampling
     don't shorten the aggregated critical paths.
+
+    With tag filters (--tags), each filter also gets its own flame graph, from
+    the analysis roots it matches (see Graph.matchingTags); its files have the
+    prefix tagOutputPrefix(filter).
     """
     checkFragmentConfig(c)
+    checkTagFilters(c)
     metrics = getProcessedMetrics(c)
     validMetrics = [m for m in metrics if m]
     if getattr(c, "rejectSubtreeIncomplete", False):
@@ -2383,15 +2424,10 @@ def lightProcess(c: common.Config) -> int:
             )
         validMetrics = kept
 
-    merged_cpp = MergeCallPathProfilesWithExemplars(validMetrics, c.maxExemplars)
-    cpps = [(m.latency, m.CPMetrics) for m in validMetrics]
-    flameGraphStr = flamegraph.aggregateCCTs(cpps, [], average=True)
+    _writeLightFlameGraph(c, validMetrics)
+    for tag in getattr(c, "tags", None) or []:
+        _writeLightFlameGraph(c, [m for m in validMetrics if tag in m.tags], prefix=tagOutputPrefix(tag))
     outputDir = c.getOutputDir()
-    cctFile = os.path.join(outputDir, "light-flame-graph-P100.cct")
-    _writeCCTOutputs(cctFile, flameGraphStr, merged_cpp, c.maxExemplars)
-
-    if c.conformance:
-        write_conformance_outputs(outputDir, flameGraphStr, merged_cpp, c.maxExemplars)
 
     options = _errorBreakdownOptions(c)
     if options is not None:

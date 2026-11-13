@@ -137,6 +137,8 @@ type Graph struct {
 	// MatchedTags is the result of matching Options.Tags against the tree
 	// (Graph.tags in Python).
 	MatchedTags []TagFilter
+	// tagFilters mirrors tagFilters: Options.Tags, for MatchingTags.
+	tagFilters []TagFilter
 
 	// ErrorBreakdown holds this trace's error paths when
 	// GraphOptions.ErrorBreakdown is set; nil if its root could not be
@@ -322,8 +324,11 @@ func NewGraph(trace *jaeger.Trace, serviceName, operationName string, opts *Grap
 	}
 
 	g.PrepareAnalysisRoot(g.RootNode)
+	g.tagFilters = o.Tags
 	g.MatchedTags = g.getMatchingTagsInTree(o.Tags, g.RootNode, 1)
-	g.TagHT = nil // no longer needed, as in Python
+	if len(o.Tags) == 0 {
+		g.TagHT = nil // only MatchingTags still reads it, as in Python
+	}
 	return g, nil
 }
 
@@ -705,6 +710,20 @@ func (g *Graph) getMatchingTagsInNode(tags []TagFilter, node *Node) []TagFilter 
 		}
 	}
 	return matching
+}
+
+// MatchingTags mirrors graph.py's matchingTags: the tag filters of this graph
+// that match under an analysis root.
+//
+// A filter matches when a span carries a tag with its name and value and is
+// at most SearchDepth levels deep, the root being level 1 (the root itself is
+// always searched). Call it after PrepareAnalysisRoot(node), as NewGraph does
+// for RootNode: spans that sanitization dropped do not count.
+func (g *Graph) MatchingTags(node *Node) []TagFilter {
+	if node == g.RootNode {
+		return g.MatchedTags
+	}
+	return g.getMatchingTagsInTree(g.tagFilters, node, 1)
 }
 
 // getMatchingTagsInTree mirrors graph.py GetMatchingTagsInTree: a DFS
