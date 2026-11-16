@@ -205,13 +205,25 @@ func processTraceRoots(data []byte, traceID, filename string, c *LightConfig) ([
 		results = append(results, res)
 	}
 
-	if len(results) > 0 {
-		// One error breakdown per trace, carried by its first result: the
-		// trace-root breakdown as is, or the sum of the per-root breakdowns.
+	// One error breakdown per trace, carried by the first result that
+	// LightProcess keeps: the trace-root breakdown as is, or the sum of the
+	// breakdowns of the kept roots. A trace without a kept root has none.
+	var first *lightTraceResult
+	var keptBreakdowns []TraceErrorBreakdown
+	for i, res := range results {
+		if !keep(c, res) {
+			continue
+		}
+		if first == nil {
+			first = res
+		}
+		keptBreakdowns = append(keptBreakdowns, analysisBreakdowns[i])
+	}
+	if first != nil {
 		if c.ErrorBreakdown != nil && c.ErrorBreakdown.Root == ErrorBreakdownTraceRoot {
-			results[0].errorBreakdown = g.ErrorBreakdown
+			first.errorBreakdown = g.ErrorBreakdown
 		} else {
-			results[0].errorBreakdown = mergeTraceErrorBreakdowns(analysisBreakdowns)
+			first.errorBreakdown = mergeTraceErrorBreakdowns(keptBreakdowns)
 		}
 	}
 	return results, nil

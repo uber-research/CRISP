@@ -75,7 +75,9 @@ Reference behaviors that affect output and are easy to get wrong in a port:
    - `--rootTrace` and a pinned root span always give a single root.
    - Per trace there is one error breakdown: the trace-root breakdown as is,
      or the sum of the per-root analysis-root breakdowns, each computed before
-     its root is sanitized.
+     its root is sanitized. With `--rejectSubtreeIncomplete` only the kept
+     roots count: the sum leaves out the rejected roots, and a trace without
+     a kept root has no breakdown.
 
 Grow this list whenever differential testing finds a new
 implementation-sensitive behavior.

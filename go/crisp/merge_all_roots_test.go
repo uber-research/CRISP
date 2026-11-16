@@ -2,6 +2,7 @@ package crisp
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -316,6 +317,88 @@ func TestMergeAllRootsErrorBreakdownIsOnePerTrace(t *testing.T) {
 				t.Errorf("traces = %d, count = %d; want 1, %d", doc.Traces, count, tt.wantCount)
 			}
 		})
+	}
+}
+
+// A calls K in svcB, and K fails. B fails on its own. Q is an orphan in svcB:
+// A's subtree is incomplete, B's is complete.
+var marRejectedRoot = []marSpan{
+	{id: "A", op: "opA", pid: "pA", start: 0, dur: 100},
+	{id: "K", op: "opK", pid: "pB", parent: "A", start: 10, dur: 50, err: true},
+	{id: "B", op: "opA", pid: "pA", start: 1000, dur: 100, err: true},
+	{id: "Q", op: "opQ", pid: "pB", parent: "missing", start: 2000, dur: 10},
+}
+
+// marErrorBreakdown returns error-breakdown.json of a light run in origins
+// mode, as written and parsed.
+func marErrorBreakdown(t *testing.T, spans []marSpan, root ErrorBreakdownRoot, reject bool) (string, ErrorBreakdown) {
+	t.Helper()
+	c := marConfig()
+	c.ErrorBreakdown = &ErrorBreakdownOptions{Mode: ErrorBreakdownOrigins, Root: root}
+	c.RejectSubtreeIncomplete = reject
+	b, err := os.ReadFile(filepath.Join(marRunLight(t, spans, c), ErrorBreakdownFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc ErrorBreakdown
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return string(b), doc
+}
+
+func marErrorKeys(doc ErrorBreakdown) []string {
+	keys := []string{}
+	for _, p := range doc.Paths {
+		keys = append(keys, fmt.Sprintf("%s=%d", p.Key, p.Count))
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// With RejectSubtreeIncomplete, the analysis-root breakdown of a trace is the
+// sum over the roots that are kept.
+func TestMergeAllRootsErrorBreakdownLeavesOutRejectedRoots(t *testing.T) {
+	r := marRejectedRoot
+	for _, tt := range []struct {
+		name  string
+		spans []marSpan
+	}{
+		{name: "the first root is rejected", spans: r},
+		{name: "a later root is rejected", spans: []marSpan{r[2], r[0], r[1], r[3]}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, doc := marErrorBreakdown(t, tt.spans, ErrorBreakdownAnalysisRoot, true)
+			if got, want := marErrorKeys(doc), []string{"[svcA]opA=1"}; doc.Traces != 1 || !reflect.DeepEqual(got, want) {
+				t.Errorf("traces = %d, paths = %v; want 1, %v", doc.Traces, got, want)
+			}
+			// Without the rejection both roots count.
+			_, doc = marErrorBreakdown(t, tt.spans, ErrorBreakdownAnalysisRoot, false)
+			if got, want := marErrorKeys(doc), []string{"[svcA]opA;[svcB]opK=1", "[svcA]opA=1"}; !reflect.DeepEqual(got, want) {
+				t.Errorf("without RejectSubtreeIncomplete: paths = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// The trace-root breakdown of a trace counts when a root is kept, first or not.
+func TestMergeAllRootsTraceRootErrorBreakdownNeedsOneKeptRoot(t *testing.T) {
+	whole, doc := marErrorBreakdown(t, marRejectedRoot, ErrorBreakdownTraceRoot, false)
+	if doc.Traces != 1 {
+		t.Fatalf("traces = %d, want 1", doc.Traces)
+	}
+	if kept, _ := marErrorBreakdown(t, marRejectedRoot, ErrorBreakdownTraceRoot, true); kept != whole {
+		t.Errorf("with RejectSubtreeIncomplete: %s, want %s", kept, whole)
+	}
+}
+
+func TestMergeAllRootsErrorBreakdownOfATraceWithoutAKeptRootIsEmpty(t *testing.T) {
+	r := marRejectedRoot
+	spans := []marSpan{r[0], r[1], r[3]} // A is the only root
+	for _, root := range []ErrorBreakdownRoot{ErrorBreakdownAnalysisRoot, ErrorBreakdownTraceRoot} {
+		if _, doc := marErrorBreakdown(t, spans, root, true); doc.Traces != 0 || len(doc.Paths) != 0 {
+			t.Errorf("%s root: traces = %d, paths = %v; want none", root, doc.Traces, marErrorKeys(doc))
+		}
 	}
 }
 

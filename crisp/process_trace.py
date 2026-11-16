@@ -793,14 +793,17 @@ def processRoots(filename: str, config: common.Config) -> list:
         graph.prepareAnalysisRoot(root)
         results.append(_processRoot(graph, root, traceID, config, dragRoot=root if dragSubtree else None))
 
-    if results:
-        # One error breakdown per trace, carried by its first Metrics: the
-        # trace-root breakdown as is, or the sum of the per-root breakdowns.
+    # One error breakdown per trace, carried by the first Metrics that
+    # lightProcess keeps: the trace-root breakdown as is, or the sum of the
+    # breakdowns of the kept roots. A trace without a kept root has none.
+    rejectIncomplete = lightPipeline and getattr(config, "rejectSubtreeIncomplete", False)
+    kept = [i for i, m in enumerate(results) if not (rejectIncomplete and m.isSubtreeIncomplete)]
+    if kept:
         options = _errorBreakdownOptions(config)
         if options is not None and options.root == ROOT_TRACE:
-            results[0].errorBreakdown = graph.errorBreakdown
+            results[kept[0]].errorBreakdown = graph.errorBreakdown
         else:
-            results[0].errorBreakdown = _mergeTraceErrorBreakdowns(analysisBreakdowns)
+            results[kept[0]].errorBreakdown = _mergeTraceErrorBreakdowns([analysisBreakdowns[i] for i in kept])
     return results
 
 
