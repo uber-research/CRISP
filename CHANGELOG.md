@@ -11,6 +11,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `--tags` had no effect: the filters never reached the graph, so the
   per-tag flame graphs of the heavy pipeline were always empty. They are now
   matched.
+- `--errorBreakdown` with `--rejectSubtreeIncomplete`, for a trace with
+  several analysis roots (`--mergeAllRoots`): the breakdown of the trace is
+  now that of the roots that are kept. Before, it was dropped when the first
+  root was rejected, also when other roots were kept, and with
+  `--errorBreakdownRoot analysis` it counted the rejected roots when the
+  first root was kept. Python and Go.
 
 ### Changed
 - `slackDrag.csv`: call paths with equal average drag now keep their

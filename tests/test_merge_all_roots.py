@@ -198,6 +198,52 @@ def test_error_breakdown_is_one_per_trace(tmp_path, root, wantCount):
     assert sum(p["count"] for p in doc["paths"]) == wantCount
 
 
+# A calls K in svcB, and K fails. B fails on its own. Q is an orphan in svcB:
+# A's subtree is incomplete, B's is complete.
+REJECTED_ROOT = [
+    span("A", "opA", "pA", start=0, dur=100),
+    span("K", "opK", "pB", parent="A", start=10, dur=50, error=True),
+    span("B", "opA", "pA", start=1000, dur=100, error=True),
+    span("Q", "opQ", "pB", parent="missing", start=2000, dur=10),
+]
+
+
+def error_breakdown(tmp_path, spans, **overrides):
+    tmp_path.mkdir(exist_ok=True)
+    out = run_light(tmp_path, spans, errorBreakdown=MODE_ORIGINS, **overrides)
+    return json.loads((out / "error-breakdown.json").read_text())
+
+
+@pytest.mark.parametrize("spans", [
+    pytest.param(REJECTED_ROOT, id="the first root is rejected"),
+    pytest.param(REJECTED_ROOT[2:3] + REJECTED_ROOT[:2] + REJECTED_ROOT[3:], id="a later root is rejected"),
+])
+def test_error_breakdown_leaves_out_rejected_roots(tmp_path, spans):
+    """With --rejectSubtreeIncomplete, the analysis-root breakdown of a trace
+    is the sum over the roots that are kept."""
+    doc = error_breakdown(tmp_path / "reject", spans, errorBreakdownRoot=ROOT_ANALYSIS, rejectSubtreeIncomplete=True)
+    assert doc["traces"] == 1
+    assert [(p["key"], p["count"]) for p in doc["paths"]] == [("[svcA]opA", 1)]
+    # Without the rejection both roots count.
+    doc = error_breakdown(tmp_path / "keep", spans, errorBreakdownRoot=ROOT_ANALYSIS)
+    assert sorted(p["key"] for p in doc["paths"]) == ["[svcA]opA", "[svcA]opA;[svcB]opK"]
+
+
+def test_trace_root_error_breakdown_needs_one_kept_root(tmp_path):
+    """The trace-root breakdown of a trace counts when a root is kept, first or not."""
+    whole = error_breakdown(tmp_path / "keep", REJECTED_ROOT, errorBreakdownRoot=ROOT_TRACE)
+    assert whole["traces"] == 1
+    kept = error_breakdown(tmp_path / "reject", REJECTED_ROOT, errorBreakdownRoot=ROOT_TRACE, rejectSubtreeIncomplete=True)
+    assert kept == whole
+
+
+@pytest.mark.parametrize("root", [ROOT_ANALYSIS, ROOT_TRACE])
+def test_error_breakdown_of_a_trace_without_a_kept_root_is_empty(tmp_path, root):
+    spans = REJECTED_ROOT[:2] + REJECTED_ROOT[3:]  # A is the only root
+    doc = error_breakdown(tmp_path, spans, errorBreakdownRoot=root, rejectSubtreeIncomplete=True)
+    assert doc["traces"] == 0 and doc["paths"] == []
+
+
 def test_drag_report_covers_each_root_subtree_once(tmp_path):
     spans = [
         span("A", "opA", "pA", start=0, dur=100),
