@@ -30,6 +30,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Docs: the dataset links now use concept DOIs, which resolve to the latest version, and the README
   summarizes version 2026-11 of the CRISP and Tale of Errors datasets (corrected `FOLLOWS_FROM` links,
   shared IDs for `Service43-Operation159` and the Tale of Errors traces, change markers and categories).
+- The Go port is no longer labeled beta. It is stable for the light/conformance
+  outputs, which CI checks against the Python goldens; the library API is
+  pre-1.0.
 
 ### Added
 - Per-tag flame graphs in the light pipeline. With `--tags`, each
