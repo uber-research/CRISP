@@ -15,7 +15,7 @@ Given a directory of [Jaeger](https://www.jaegertracing.io/) traces for a single
 
 The original paper: **[CRISP: Critical Path Analysis of Large-Scale Microservice Architectures](https://www.usenix.org/conference/atc22/presentation/zhang-zhizhou)**, USENIX ATC '22.
 
-> A **Go port** of the light/conformance pipeline — byte-identical outputs, single static binary, embeddable as a library — is in beta. See [Go port](#go-port-beta).
+> A **Go port** of the light/conformance pipeline — byte-identical outputs, single static binary, embeddable as a library — is available. See [Go port](#go-port).
 
 ---
 
@@ -192,11 +192,13 @@ The response is a stream of length-prefixed `AnalyzeResponse` protobuf messages 
 
 ---
 
-## Go port (beta)
+## Go port
 
 A Go implementation of the light/conformance pipeline lives in [`go/`](go/). It produces **byte-identical outputs** to the Python reference — `conformance.cct/json`, `light-flame-graph-P100.{cct,dot,pb}`, `slackDrag.csv`, `error-breakdown.json` — as a single static binary or an embeddable library, with no interpreter or pandas startup cost.
 
 Not ported: the heavy analysis mode (HTML report, percentile flame graphs, `--errorAnalysis` outputs) and slack computation (`--computeSlackDrag`; drag is always computed, slack columns are `0.0`).
+
+The Go port is stable for the outputs above: CI checks them against the same goldens as Python, and features land in both implementations together. The library API is pre-1.0, so its signatures may still change between releases.
 
 ### CLI
 
